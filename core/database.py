@@ -119,6 +119,15 @@ def guardar_memoria(tipo, contenido, mercado_id=None):
     conn.commit()
     conn.close()
 
+def get_mercados_apostados():
+    """Retorna set de mercado_ids que ya tienen operaciones (para sobrevivir reinicios)."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT mercado_id FROM operaciones")
+    ids = {row[0] for row in c.fetchall()}
+    conn.close()
+    return ids
+
 def obtener_estadisticas():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

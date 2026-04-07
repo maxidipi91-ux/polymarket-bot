@@ -12,7 +12,7 @@ from datetime import datetime
 from core.estado import (estado, addlog, insertar_operacion,
                          actualizar_saldo, actualizar_pnl, get_mercados,
                          get_operaciones)
-from core.database import guardar_operacion
+from core.database import guardar_operacion, get_mercados_apostados
 
 INTERVALO_SEGUNDOS  = 90
 apostados           = set()
@@ -207,6 +207,10 @@ def ejecutar_apuesta(mercado):
 def correr():
     addlog("[Trader] v3 iniciado — anti-martingale, límite por tema, edge 8%", "info")
     time.sleep(15)
+
+    # Restaurar apostados desde DB para sobrevivir reinicios
+    apostados.update(get_mercados_apostados())
+    addlog(f"[Trader] {len(apostados)} mercados ya apostados cargados desde DB", "info")
 
     while estado["corriendo"]:
         try:
