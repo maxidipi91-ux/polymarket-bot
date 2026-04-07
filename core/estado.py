@@ -22,6 +22,7 @@ estado = {
     "log":              [],
     "telegram_activo":  False,
     "ciclo_num":        0,
+    "señales_cripto":   {},             # publicado por agentes/binance.py
 }
 
 
@@ -87,11 +88,3 @@ def incrementar_ciclo():
         return estado["ciclo_num"]
 
 
-def merge_mercados_binance(nuevos):
-    """
-    Reemplaza los mercados con id que empieza en 'binance_' por la nueva lista.
-    Los mercados del Monitor (no-Binance) no se tocan.
-    """
-    with _lock:
-        otros = [m for m in estado["mercados"] if not m["id"].startswith("binance_")]
-        estado["mercados"] = otros + nuevos
