@@ -22,7 +22,7 @@ import json
 import requests
 from datetime import datetime, timezone, timedelta
 
-from core.estado import estado, addlog, merge_mercados_binance
+from core.estado import estado, addlog
 from core.database import guardar_mercado, guardar_analisis
 from config_loader import CONFIG
 
