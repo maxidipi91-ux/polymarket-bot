@@ -120,8 +120,8 @@ def analizar(m_raw):
         "ultima_vez_analizado":  datetime.now(),
         "decision_investigador": "APOSTAR",
         "confianza":             confianza,
-        "probabilidad_claudio":  round(mejor_prob, 4),
-        "edge_calculado":        round(mejor_prob - precio_op, 4),  # edge vs precio = 0 (siempre positivo por diseño)
+        "probabilidad_claudio":  1.0,   # Mercado cerca de resolver YES — fair value = 100%
+        "edge_calculado":        round(1.0 - precio_op, 4),
         "metodo_analisis":       "NearResolution",
         "razonamiento": (
             f"{mejor_outcome} {round(mejor_prob*100,1)}% | "
