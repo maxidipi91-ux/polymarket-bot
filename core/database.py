@@ -119,6 +119,52 @@ def guardar_memoria(tipo, contenido, mercado_id=None):
     conn.commit()
     conn.close()
 
+def get_operaciones_db():
+    """Retorna operaciones en formato compatible con estado['operaciones']."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, mercado_id, outcome, precio_entrada, monto, ganancia, resultado, fecha_entrada
+        FROM operaciones ORDER BY id DESC LIMIT 50
+    """)
+    rows = c.fetchall()
+    conn.close()
+    ops = []
+    for row in rows:
+        db_id, mercado_id, outcome, precio, monto, ganancia, resultado, fecha = row
+        ops.append({
+            "id":                  mercado_id,
+            "db_id":               db_id,
+            "pregunta":            mercado_id,
+            "outcome":             outcome or "",
+            "precio":              round((precio or 0) * 100, 1),
+            "monto":               round(monto or 0, 2),
+            "ganancia_potencial":  round((monto or 0) / max(precio or 0.5, 0.01) - (monto or 0), 2),
+            "estado":              resultado or "ABIERTA",
+            "fecha":               (fecha or "")[:19],
+            "fecha_completa":      fecha or "",
+            "confianza":           "—",
+            "kelly_usado":         None,
+            "edge":                0,
+            "probabilidad_claudio": precio or 0,
+            "ganancia":            round(ganancia or 0, 2),
+        })
+    return ops
+
+
+def calcular_estado_financiero(saldo_inicial):
+    """Calcula saldo actual y PnL desde la DB."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT SUM(monto) FROM operaciones WHERE resultado='ABIERTA'")
+    exposure = c.fetchone()[0] or 0.0
+    c.execute("SELECT SUM(ganancia) FROM operaciones WHERE ganancia IS NOT NULL")
+    pnl = c.fetchone()[0] or 0.0
+    conn.close()
+    saldo_actual = saldo_inicial - exposure + pnl
+    return round(saldo_actual, 2), round(pnl, 2)
+
+
 def get_mercados_apostados():
     """Retorna set de mercado_ids que ya tienen operaciones (para sobrevivir reinicios)."""
     conn = sqlite3.connect(DB_PATH)

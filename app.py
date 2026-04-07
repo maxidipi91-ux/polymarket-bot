@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.estado import estado, addlog, get_mercados, get_operaciones
-from core.database import init_db, obtener_estadisticas
+from core.database import init_db, obtener_estadisticas, get_operaciones_db, calcular_estado_financiero
 import claudio as orquestador
 
 app = Flask(__name__)
@@ -21,27 +21,29 @@ app = Flask(__name__)
 
 @app.route("/api/estado")
 def api_estado():
-    stats  = obtener_estadisticas()
-    ops    = get_operaciones()
-    mercs  = get_mercados()
-    total  = len(ops)
-    ganadas = len([o for o in ops if o["estado"] == "GANADA"])
+    from config_loader import CONFIG
+    stats   = obtener_estadisticas()
+    mercs   = get_mercados()
+    ops     = get_operaciones_db()  # siempre desde DB
+    saldo, pnl = calcular_estado_financiero(CONFIG["saldo_inicial"])
+    total   = stats["total"]
+    ganadas = stats["ganadas"]
     return jsonify({
-        "corriendo":  estado["corriendo"],
-        "modo":       estado["modo"],
-        "saldo":      round(estado["saldo"], 2),
-        "pnl":        round(estado["pnl"], 2),
-        "riesgo":     estado["riesgo_por_op"],
-        "total_ops":  total,
-        "ganadas":    ganadas,
-        "winrate":    round(ganadas / total * 100) if total > 0 else 0,
-        "ciclo_num":  estado["ciclo_num"],
-        "ollama":     estado["ollama_disponible"],
-        "telegram":   estado["telegram_activo"],
-        "mercados":   mercs[:10],
+        "corriendo":   estado["corriendo"],
+        "modo":        estado["modo"],
+        "saldo":       saldo,
+        "pnl":         pnl,
+        "riesgo":      estado["riesgo_por_op"],
+        "total_ops":   total,
+        "ganadas":     ganadas,
+        "winrate":     stats["winrate"],
+        "ciclo_num":   estado["ciclo_num"],
+        "groq":        True,  # Groq siempre activo si hay key
+        "telegram":    estado["telegram_activo"],
+        "mercados":    mercs[:10],
         "operaciones": ops[:10],
-        "log":        estado["log"][:20],
-        "stats_db":   stats,
+        "log":         estado["log"][:20],
+        "stats_db":    stats,
     })
 
 @app.route("/api/iniciar")
@@ -56,10 +58,14 @@ def api_detener():
     orquestador.detener()
     return jsonify({"ok": True})
 
-@app.route("/api/riesgo/<float:valor>")
+@app.route("/api/riesgo/<valor>")
 def api_riesgo(valor):
-    estado["riesgo_por_op"] = valor
-    addlog(f"Riesgo por operación → ${valor}")
+    try:
+        v = float(valor)
+        estado["riesgo_por_op"] = v
+        addlog(f"Riesgo por operación → ${v}")
+    except:
+        pass
     return jsonify({"ok": True})
 
 @app.route("/api/modo/<string:modo>")
@@ -141,7 +147,7 @@ main { padding:14px 18px; display:flex; flex-direction:column; gap:12px; max-wid
   </div>
   <div class="status-group">
     <div class="status-item"><div class="dot off" id="dot-main"></div><span id="txt-main">Detenido</span></div>
-    <div class="status-item"><div class="dot off" id="dot-ollama"></div><span>Ollama</span></div>
+    <div class="status-item"><div class="dot off" id="dot-groq"></div><span>LLM</span></div>
     <div class="status-item"><div class="dot off" id="dot-telegram"></div><span>Telegram</span></div>
   </div>
 </header>
@@ -215,7 +221,7 @@ async function actualizar() {
     // Status dots
     document.getElementById('dot-main').className = 'dot ' + (d.corriendo ? 'on' : 'off');
     document.getElementById('txt-main').textContent = d.corriendo ? 'Corriendo' : 'Detenido';
-    document.getElementById('dot-ollama').className = 'dot ' + (d.ollama ? 'on' : 'warn');
+    document.getElementById('dot-groq').className = 'dot ' + (d.groq ? 'on' : 'warn');
     document.getElementById('dot-telegram').className = 'dot ' + (d.telegram ? 'on' : 'off');
 
     // Métricas

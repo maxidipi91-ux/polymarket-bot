@@ -63,10 +63,21 @@ def iniciar():
     init_db()
 
     # Aplicar configuración desde .env al estado global
-    estado["saldo"]         = CONFIG["saldo_inicial"]
     estado["riesgo_por_op"] = CONFIG["riesgo_por_op"]
     estado["modo"]          = CONFIG["modo"]
     estado["corriendo"]     = True
+
+    # Restaurar saldo y PnL desde DB (sobrevive reinicios)
+    from core.database import calcular_estado_financiero, get_operaciones_db
+    saldo_actual, pnl_actual = calcular_estado_financiero(CONFIG["saldo_inicial"])
+    estado["saldo"] = saldo_actual
+    estado["pnl"]   = pnl_actual
+
+    # Cargar operaciones históricas en memoria
+    from core.estado import _lock
+    ops_db = get_operaciones_db()
+    with _lock:
+        estado["operaciones"] = ops_db
 
     addlog(f"Claudio iniciando — {datetime.now().strftime('%Y-%m-%d %H:%M')}", "win")
     addlog(f"Modo: {estado['modo']} | Saldo: ${estado['saldo']} | Riesgo: ${estado['riesgo_por_op']}", "info")
