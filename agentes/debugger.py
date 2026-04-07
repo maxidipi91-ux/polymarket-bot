@@ -38,21 +38,21 @@ def analizar_logs():
     return alertas
 
 
-def verificar_ollama():
-    """Verifica que Ollama esté respondiendo."""
+def verificar_polymarket():
+    """Verifica que Polymarket sea accesible."""
     try:
         import requests
-        r = requests.get("http://localhost:11434/api/tags", timeout=3)
+        r = requests.get("https://gamma-api.polymarket.com/markets?limit=1", timeout=8)
         return r.status_code == 200
     except:
         return False
 
 
-def verificar_polymarket():
-    """Verifica que Polymarket sea accesible (VPN activa)."""
+def verificar_kraken():
+    """Verifica que Kraken esté accesible."""
     try:
         import requests
-        r = requests.get("https://gamma-api.polymarket.com/markets?limit=1", timeout=8)
+        r = requests.get("https://api.kraken.com/0/public/Time", timeout=5)
         return r.status_code == 200
     except:
         return False
@@ -71,8 +71,8 @@ def correr():
     addlog("[Debugger] Iniciado — monitoreando errores cada 10 min", "info")
     time.sleep(120)  # Esperar que el sistema esté estable
 
-    ollama_ok_anterior    = True
     polymarket_ok_anterior = True
+    kraken_ok_anterior     = True
 
     while estado["corriendo"]:
         try:
@@ -81,36 +81,34 @@ def correr():
             # 1. Errores repetidos en logs
             alertas = analizar_logs()
             for alerta in alertas:
-                problemas.append(f"⚠️ Error repetido x{alerta['count']}: {alerta['msg']}")
+                problemas.append(f"Error repetido x{alerta['count']}: {alerta['msg']}")
 
-            # 2. Ollama
-            ollama_ok = verificar_ollama()
-            if not ollama_ok and ollama_ok_anterior:
-                problemas.append("❌ Ollama no responde — análisis degradado a modo básico")
-            elif ollama_ok and not ollama_ok_anterior:
-                problemas.append("✅ Ollama recuperado")
-            ollama_ok_anterior = ollama_ok
-            estado["ollama_disponible"] = ollama_ok
-
-            # 3. Polymarket / VPN
+            # 2. Polymarket
             polymarket_ok = verificar_polymarket()
             if not polymarket_ok and polymarket_ok_anterior:
-                problemas.append("❌ Polymarket inaccesible — verificar VPN")
+                problemas.append("Polymarket inaccesible")
             elif polymarket_ok and not polymarket_ok_anterior:
-                problemas.append("✅ Polymarket accesible nuevamente")
+                enviar_alerta("Polymarket accesible nuevamente")
             polymarket_ok_anterior = polymarket_ok
 
-            # 4. Agentes caídos
-            ciclo_actual = estado.get("ciclo_num", 0)
-            if ciclo_actual > 5 and len(estado.get("mercados", [])) == 0:
-                problemas.append("⚠️ Monitor sin mercados después de 5+ ciclos")
+            # 3. Kraken
+            kraken_ok = verificar_kraken()
+            if not kraken_ok and kraken_ok_anterior:
+                problemas.append("Kraken inaccesible — sin precios BTC/ETH")
+            elif kraken_ok and not kraken_ok_anterior:
+                enviar_alerta("Kraken accesible nuevamente")
+            kraken_ok_anterior = kraken_ok
+
+            # 4. Sin mercados tras arranque
+            if len(estado.get("mercados", [])) == 0:
+                problemas.append("Sin mercados detectados — revisar agentes Odds/Arbitraje")
 
             if problemas:
                 msg = "\n".join(problemas)
-                addlog(f"[Debugger] {len(problemas)} problema(s) detectado(s)", "error")
+                addlog(f"[Debugger] {len(problemas)} problema(s): {problemas[0]}", "error")
                 enviar_alerta(msg)
             else:
-                addlog(f"[Debugger] Todo OK — Ollama: {'✅' if ollama_ok else '❌'} | Polymarket: {'✅' if polymarket_ok else '❌'}")
+                addlog(f"[Debugger] Todo OK — Polymarket: OK | Kraken: OK")
 
         except Exception as e:
             addlog(f"[Debugger] Error interno: {e}", "error")
