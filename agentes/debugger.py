@@ -65,8 +65,7 @@ def verificar_llm_cascade():
     """
     import requests
     try:
-        from core.config_loader import cargar_config
-        cfg = cargar_config()
+        from config_loader import CONFIG as cfg
     except:
         return False, None
 

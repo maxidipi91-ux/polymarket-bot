@@ -50,8 +50,8 @@ DEPORTES = [
     "golf_the_open_championship_winner",
     # Soccer — FIFA World Cup 2026: 48 mercados, $84.6M liquidez 🔥
     "soccer_fifa_world_cup_winner",
-    # Política US — 380 mercados, $227M liquidez 🔥
-    "politics_us_presidential_election_winner",
+    # Política US — midterms 2026
+    "politics_us_senate_elections",
 ]
 
 # Bookmakers preferidos: Pinnacle y Betfair son los más sharp del mundo

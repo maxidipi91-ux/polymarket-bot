@@ -48,6 +48,13 @@ def parsear_lista(valor):
 def registrar_volumen(mercados):
     """Guarda snapshot del volumen actual de cada mercado."""
     ahora = time.time()
+    ids_activos = {m.get("id", "") for m in mercados}
+
+    # Limpiar keys de mercados que ya no están activos
+    for mid in list(_vol_history.keys()):
+        if mid not in ids_activos:
+            del _vol_history[mid]
+
     for m in mercados:
         mid = m.get("id", "")
         vol = float(m.get("volume", 0) or 0)

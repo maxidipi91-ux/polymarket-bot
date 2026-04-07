@@ -16,23 +16,24 @@ import os
 from datetime import datetime
 from core.estado import estado, addlog, get_operaciones
 from core.database import obtener_estadisticas
-from config_loader import CONFIG
-
-# ─── Configuración ───────────────────────────────────────────────
-TELEGRAM_TOKEN   = CONFIG["telegram_token"]
-TELEGRAM_CHAT_ID = CONFIG["telegram_chat_id"]
-TELEGRAM_URL     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 # ─── Envío de mensajes ───────────────────────────────────────────
 
+def _cfg():
+    from config_loader import CONFIG
+    return CONFIG
+
 def enviar_mensaje(texto):
     """Manda un mensaje al usuario vía Telegram."""
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+    cfg = _cfg()
+    token   = cfg.get("telegram_token", "")
+    chat_id = cfg.get("telegram_chat_id", "")
+    if not token or not chat_id:
         return False
     try:
         r = requests.post(
-            f"{TELEGRAM_URL}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": texto, "parse_mode": "HTML"},
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": texto, "parse_mode": "HTML"},
             timeout=10
         )
         return r.status_code == 200
@@ -70,9 +71,13 @@ ultimo_update_id = 0
 
 def obtener_updates():
     global ultimo_update_id
+    cfg = _cfg()
+    token = cfg.get("telegram_token", "")
+    if not token:
+        return []
     try:
         r = requests.get(
-            f"{TELEGRAM_URL}/getUpdates",
+            f"https://api.telegram.org/bot{token}/getUpdates",
             params={"offset": ultimo_update_id + 1, "timeout": 10},
             timeout=15
         )
@@ -156,18 +161,21 @@ def procesar_comando(texto, chat_id):
         respuesta = "No entendí ese comando. Mandá /ayuda para ver las opciones."
 
     try:
-        requests.post(
-            f"{TELEGRAM_URL}/sendMessage",
-            json={"chat_id": chat_id, "text": respuesta, "parse_mode": "HTML"},
-            timeout=10
-        )
+        cfg = _cfg()
+        token = cfg.get("telegram_token", "")
+        if token:
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": respuesta, "parse_mode": "HTML"},
+                timeout=10
+            )
     except:
         pass
 
 
 def correr():
     """Loop principal del agente Telegram."""
-    if not TELEGRAM_TOKEN:
+    if not _cfg().get("telegram_token"):
         addlog("[Telegram] Sin token configurado — agente desactivado. Ver config.json", "error")
         estado["telegram_activo"] = False
         return
