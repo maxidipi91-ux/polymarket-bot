@@ -128,12 +128,24 @@ def buscar_inconsistencias_logicas(mercados):
     import re
     oportunidades = []
 
-    # Agrupar mercados por tema (primeras 3 palabras de la pregunta)
+    ASSETS = ["btc", "bitcoin", "eth", "ethereum", "sol", "solana", "xrp", "bnb", "doge"]
+
+    def detectar_asset(pregunta):
+        pq = pregunta.lower()
+        for a in ASSETS:
+            if a in pq:
+                return a
+        return ""
+
+    # Agrupar mercados por tema (primeras 3 palabras + asset detectado)
     grupos = {}
     for m in mercados:
         if not m or not m["precio_yes"]: continue
+        # Filtrar mercados casi resueltos (precio < 5% o > 95%)
+        if m["precio_yes"] < 0.05 or m["precio_yes"] > 0.95: continue
         palabras = m["pregunta"].lower().split()[:4]
-        clave = " ".join(palabras[:3])
+        asset = detectar_asset(m["pregunta"])
+        clave = " ".join(palabras[:3]) + "|" + asset
         if clave not in grupos:
             grupos[clave] = []
         grupos[clave].append(m)

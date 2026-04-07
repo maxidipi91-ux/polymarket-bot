@@ -17,7 +17,7 @@ Señal combinada: spike + diferencia PredictIt = confianza ALTA.
 import time
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from core.estado import estado, addlog, insertar_mercado
 from core.database import guardar_mercado
 
@@ -29,6 +29,7 @@ SPIKE_RATIO    = 1.50   # Volumen actual > 1.5x el de hace 1 hora
 SPIKE_MIN_VOL  = 500    # Al menos $500 de volumen nuevo
 PI_EDGE        = 0.10   # Diferencia mínima con PredictIt (10%)
 LIQUIDEZ_MIN   = 1000   # Liquidez mínima en Polymarket
+PI_MAX_DIAS    = 90     # Solo-PredictIt: máximo 90 días (sin spike = más ruido)
 
 _vol_history   = {}     # mercado_id → [(timestamp, volumen), ...]
 _pi_cache      = {"data": None, "ts": 0}
@@ -309,12 +310,23 @@ def correr():
                         "win"
                     )
 
-            # Señal 2: Solo PredictIt (sin spike necesario) — todos los mercados
+            # Señal 2: Solo PredictIt (sin spike necesario) — mercados hasta 90 días
+            limite_fecha = datetime.now(timezone.utc) + timedelta(days=PI_MAX_DIAS)
             if contratos_pi:
                 for m in mercados_raw:
                     mid = m.get("id", "")
                     if mid in encontrados: continue
                     if float(m.get("liquidity", 0) or 0) < LIQUIDEZ_MIN: continue
+                    # Filtrar mercados muy lejanos (elecciones 2026, etc.)
+                    fecha_fin = m.get("endDate", "")
+                    if fecha_fin:
+                        try:
+                            s = fecha_fin.rstrip("Z")
+                            venc = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+                            if venc > limite_fecha:
+                                continue
+                        except:
+                            pass
 
                     pi_precio, pi_nombre = buscar_en_predictit(
                         m.get("question", ""), contratos_pi
