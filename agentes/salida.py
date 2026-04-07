@@ -39,36 +39,80 @@ def _obtener_mercados_cached():
     """
     Descarga los mercados UNA sola vez por ciclo de monitoreo y los reutiliza
     para todas las posiciones abiertas. Evita N llamadas a la API cuando hay N ops.
+    Descarga hasta 1000 mercados (2 páginas de 500).
     """
     global _mercados_cache, _cache_ts
     ahora = datetime.now()
     if _cache_ts and (ahora - _cache_ts).total_seconds() < _CACHE_TTL_SEG:
         return _mercados_cache
     try:
-        params = {"active": "true", "closed": "false", "limit": 500}
-        r = requests.get(f"{GAMMA_URL}/markets", params=params, timeout=10)
-        _mercados_cache = r.json()
+        resultado = []
+        for offset in [0, 500]:
+            params = {"active": "true", "closed": "false", "limit": 500, "offset": offset}
+            r = requests.get(f"{GAMMA_URL}/markets", params=params, timeout=10)
+            batch = r.json()
+            resultado.extend(batch)
+            if len(batch) < 500:
+                break
+        _mercados_cache = resultado
         _cache_ts = ahora
     except Exception as e:
         addlog(f"[Salida] Error actualizando cache de mercados: {e}", "error")
     return _mercados_cache
 
 
+def _extraer_polymarket_id(pregunta):
+    """
+    Si la pregunta es un ID sintético (mom_<id>_Yes, arb_<id>_Yes, nr_<...>),
+    extrae el ID real de Polymarket cuando está embebido en el prefijo.
+    Retorna el ID o None si no es un prefijo sintético.
+    """
+    for prefijo in ("mom_", "arb_"):
+        if pregunta.startswith(prefijo):
+            # Formato: mom_<polymarket_id>_Yes  (el ID puede tener guiones)
+            resto = pregunta[len(prefijo):]
+            # Quitar el sufijo _<outcome>
+            partes = resto.rsplit("_", 1)
+            if len(partes) == 2:
+                return partes[0]  # el ID de Polymarket
+    return None
+
+
 def obtener_precio_real(pregunta, outcome):
     """
     Obtiene el precio real de Polymarket usando la cache compartida del ciclo.
-    Ya no descarga 500 mercados por cada posicion abierta.
+    Soporta:
+      - Preguntas reales (matching por texto)
+      - IDs sintéticos de Momentum (mom_<id>_Yes) y Arbitraje (arb_<id>_Yes)
+        → extrae el ID de Polymarket y busca por ID exacto
     """
     try:
         mercados = _obtener_mercados_cached()
+
+        # Intentar primero por ID directo (para mom_ y arb_)
+        pm_id = _extraer_polymarket_id(pregunta)
+        if pm_id:
+            for m in mercados:
+                if m.get("id", "") == pm_id or str(m.get("id", "")).startswith(pm_id[:20]):
+                    precios  = m.get("outcomePrices", "[]")
+                    outcomes = m.get("outcomes", "[]")
+                    if isinstance(precios, str):  precios  = json.loads(precios)
+                    if isinstance(outcomes, str): outcomes = json.loads(outcomes)
+                    for o, p in zip(outcomes, precios):
+                        if o.lower() == outcome.lower():
+                            return float(p)
+
+        # Fallback: matching por texto (pregunta real o nr_)
+        buscar = pregunta[:25].lower()
+        # Para nr_, la pregunta guardada en DB es la pregunta real
         for m in mercados:
-            if pregunta[:25].lower() in m.get("question", "").lower():
+            if buscar in m.get("question", "").lower():
                 precios  = m.get("outcomePrices", "[]")
                 outcomes = m.get("outcomes", "[]")
                 if isinstance(precios, str):  precios  = json.loads(precios)
                 if isinstance(outcomes, str): outcomes = json.loads(outcomes)
                 for o, p in zip(outcomes, precios):
-                    if o == outcome:
+                    if o.lower() == outcome.lower():
                         return float(p)
     except:
         pass

@@ -14,17 +14,14 @@ Hace:
 """
 
 import time
-import requests
 import json
 import sqlite3
 from datetime import datetime, timedelta
 from core.estado import estado, addlog
 from core.database import guardar_memoria, DB_PATH
-from config_loader import CONFIG
 
 INTERVALO_CHECK = 300   # Chequea cada 5 minutos si hay que soñar
 IDLE_MINUTOS    = 30    # Considera idle si no hubo operaciones en 30 min
-OLLAMA_URL      = CONFIG["ollama_url"]
 
 
 def minutos_desde_ultima_op():
@@ -62,60 +59,6 @@ def obtener_historial_completo():
         return []
 
 
-def consolidar_con_ollama(historial):
-    """
-    Manda el historial a Mistral para que extraiga patrones y aprendizajes.
-    """
-    if not historial:
-        return None
-
-    ganadas  = [r for r in historial if r[6] == "GANADA"]
-    perdidas = [r for r in historial if r[6] == "PERDIDA"]
-
-    resumen_ganadas  = "\n".join([
-        f"- Mercado: {r[0][:40]} | Outcome: {r[1]} | Precio entrada: {round(r[2]*100,1)}% | Razonamiento: {r[9][:80] if r[9] else 'N/A'}"
-        for r in ganadas[:10]
-    ]) or "Sin operaciones ganadas."
-
-    resumen_perdidas = "\n".join([
-        f"- Mercado: {r[0][:40]} | Outcome: {r[1]} | Precio entrada: {round(r[2]*100,1)}% | Razonamiento: {r[9][:80] if r[9] else 'N/A'}"
-        for r in perdidas[:10]
-    ]) or "Sin operaciones perdidas."
-
-    prompt = f"""Sos el cerebro de un bot de trading en Polymarket llamado Claudio.
-Analizá el historial de operaciones y extraé aprendizajes concretos.
-
-OPERACIONES GANADAS ({len(ganadas)}):
-{resumen_ganadas}
-
-OPERACIONES PERDIDAS ({len(perdidas)}):
-{resumen_perdidas}
-
-Respondé ÚNICAMENTE con este JSON:
-{{
-  "patron_exito": "<qué tienen en común las operaciones ganadas — máx 2 oraciones>",
-  "patron_error": "<qué tienen en común las operaciones perdidas — máx 2 oraciones>",
-  "ajuste_recomendado": "<un cambio concreto que mejoraría el rendimiento>",
-  "confianza_actual": "<ALTA|MEDIA|BAJA — evaluación del rendimiento general>",
-  "insight": "<observación más importante del análisis>"
-}}"""
-
-    try:
-        r = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={"model": "mistral", "prompt": prompt, "stream": False},
-            timeout=90
-        )
-        texto  = r.json().get("response", "")
-        inicio = texto.find("{")
-        fin    = texto.rfind("}") + 1
-        if inicio >= 0 and fin > inicio:
-            return json.loads(texto[inicio:fin])
-    except Exception as e:
-        addlog(f"[autoDream] Error Ollama: {e}", "error")
-    return None
-
-
 def notificar_telegram(insights):
     """Manda el resumen del sueño por Telegram."""
     try:
@@ -142,22 +85,18 @@ def sonar():
         addlog("[autoDream] Poco historial todavía — necesita más operaciones")
         return
 
-    addlog(f"[autoDream] Analizando {len(historial)} operaciones con Mistral...")
+    addlog(f"[autoDream] Analizando {len(historial)} operaciones...")
 
-    if estado.get("ollama_disponible"):
-        insights = consolidar_con_ollama(historial)
-    else:
-        # Análisis básico sin Ollama
-        ganadas  = [r for r in historial if r[6] == "GANADA"]
-        perdidas = [r for r in historial if r[6] == "PERDIDA"]
-        winrate  = round(len(ganadas) / len(historial) * 100, 1) if historial else 0
-        insights = {
-            "patron_exito":       f"{len(ganadas)} operaciones ganadas de {len(historial)} total",
-            "patron_error":       f"{len(perdidas)} operaciones perdidas",
-            "ajuste_recomendado": "Continuar acumulando datos para análisis más preciso",
-            "confianza_actual":   "ALTA" if winrate > 60 else "MEDIA" if winrate > 40 else "BAJA",
-            "insight":            f"Winrate actual: {winrate}%"
-        }
+    ganadas  = [r for r in historial if r[6] == "GANADA"]
+    perdidas = [r for r in historial if r[6] == "PERDIDA"]
+    winrate  = round(len(ganadas) / len(historial) * 100, 1) if historial else 0
+    insights = {
+        "patron_exito":       f"{len(ganadas)} operaciones ganadas de {len(historial)} total",
+        "patron_error":       f"{len(perdidas)} operaciones perdidas",
+        "ajuste_recomendado": "Continuar acumulando datos para análisis más preciso",
+        "confianza_actual":   "ALTA" if winrate > 60 else "MEDIA" if winrate > 40 else "BAJA",
+        "insight":            f"Winrate actual: {winrate}%"
+    }
 
     if insights:
         # Guardar en memoria

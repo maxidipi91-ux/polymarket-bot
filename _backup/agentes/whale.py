@@ -33,40 +33,9 @@ Detección de clusters coordinados:
 
 import time
 import requests
-import json
-from datetime import datetime, timedelta
-from collections import defaultdict
 from core.estado import estado, addlog
 
-DATA_API   = "https://data-api.polymarket.com"
-GAMMA_URL  = "https://gamma-api.polymarket.com"
-
-# Parámetros
-MIN_ENTRADA_WHALE    = 5000    # Mínimo $5K para considerar entrada de whale
-MIN_CLUSTER_SIZE     = 3       # Mínimo 3 whales para señal de cluster
-VENTANA_CLUSTER_MIN  = 5       # Detectar cluster en ventana de 5 minutos
-SCORE_MINIMO         = 0.60    # Score mínimo de wallet para seguirla
-
-
-def calcular_score_wallet(historial):
-    """
-    Calcula el score de una wallet basado en su historial.
-    Retorna float entre 0 y 1.
-    """
-    if not historial:
-        return 0
-
-    total    = len(historial)
-    ganadas  = sum(1 for h in historial if h.get("ganancia", 0) > 0)
-    winrate  = ganadas / total if total > 0 else 0
-
-    # Rentabilidad total
-    ganancia_total = sum(h.get("ganancia", 0) for h in historial)
-    roi = ganancia_total / sum(h.get("monto", 1) for h in historial) if historial else 0
-
-    # Score compuesto
-    score = (winrate * 0.40) + (min(roi, 2) / 2 * 0.40) + (min(total, 50) / 50 * 0.20)
-    return round(min(score, 1.0), 3)
+DATA_API = "https://data-api.polymarket.com"
 
 
 def obtener_top_wallets_leaderboard(limit=50):
@@ -90,54 +59,6 @@ def obtener_top_wallets_leaderboard(limit=50):
         except:
             continue
     return []
-
-
-def monitorear_trades_recientes(wallet, minutos=10):
-    """Obtiene trades recientes de una wallet."""
-    try:
-        params = {"maker": wallet, "limit": 20}
-        r = requests.get(f"{DATA_API}/trades", params=params, timeout=8)
-        if r.status_code == 200:
-            trades = r.json()
-            if isinstance(trades, list):
-                # Filtrar últimos N minutos
-                cutoff = datetime.now() - timedelta(minutes=minutos)
-                recientes = []
-                for t in trades:
-                    try:
-                        ts = t.get("timestamp") or t.get("createdAt", "")
-                        if ts:
-                            recientes.append(t)
-                    except:
-                        continue
-                return recientes
-    except:
-        pass
-    return []
-
-
-def detectar_clusters(trades_por_mercado, ventana_min=VENTANA_CLUSTER_MIN):
-    """Detecta cuando múltiples whales entran al mismo mercado."""
-    clusters = []
-    for mercado_id, entradas in trades_por_mercado.items():
-        if len(entradas) >= MIN_CLUSTER_SIZE:
-            monto_total = sum(e.get("monto", 0) for e in entradas)
-            outcomes    = [e.get("outcome") for e in entradas]
-            outcome_top = max(set(outcomes), key=outcomes.count) if outcomes else None
-            coincidencia = outcomes.count(outcome_top) / len(outcomes) if outcomes else 0
-
-            if coincidencia >= 0.70:
-                clusters.append({
-                    "mercado_id":    mercado_id,
-                    "num_whales":    len(entradas),
-                    "monto_total":   monto_total,
-                    "outcome":       outcome_top,
-                    "coincidencia":  round(coincidencia, 2),
-                    "score":         len(entradas) * monto_total,
-                })
-
-    clusters.sort(key=lambda x: x["score"], reverse=True)
-    return clusters
 
 
 def correr():

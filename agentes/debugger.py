@@ -2,7 +2,7 @@
 agentes/debugger.py — Agente Debugger
 Revisa los logs cada 10 minutos buscando errores repetidos.
 Si detecta algo crítico, avisa por Telegram con diagnóstico.
-También verifica que Ollama y la VPN estén funcionando.
+Verifica Polymarket, Kraken y el cascade LLM (Groq/Cerebras/Mistral).
 """
 
 import time
@@ -58,6 +58,61 @@ def verificar_kraken():
         return False
 
 
+def verificar_llm_cascade():
+    """
+    Verifica que al menos un proveedor LLM del cascade esté respondiendo.
+    Retorna (ok, nombre_proveedor) o (False, None).
+    """
+    import requests
+    try:
+        from core.config_loader import cargar_config
+        cfg = cargar_config()
+    except:
+        return False, None
+
+    proveedores = [
+        {
+            "nombre": "Groq",
+            "url": "https://api.groq.com/openai/v1/chat/completions",
+            "key": cfg.get("groq_api_key", ""),
+            "model": "llama-3.3-70b-versatile",
+        },
+        {
+            "nombre": "Cerebras",
+            "url": "https://api.cerebras.ai/v1/chat/completions",
+            "key": cfg.get("cerebras_api_key", ""),
+            "model": "llama3.3-70b",
+        },
+        {
+            "nombre": "Mistral",
+            "url": "https://api.mistral.ai/v1/chat/completions",
+            "key": cfg.get("mistral_api_key", ""),
+            "model": "mistral-small-latest",
+        },
+    ]
+
+    for p in proveedores:
+        if not p["key"]:
+            continue
+        try:
+            r = requests.post(
+                p["url"],
+                headers={"Authorization": f"Bearer {p['key']}", "Content-Type": "application/json"},
+                json={
+                    "model": p["model"],
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 5,
+                },
+                timeout=8,
+            )
+            if r.status_code == 200:
+                return True, p["nombre"]
+        except:
+            continue
+
+    return False, None
+
+
 def enviar_alerta(msg):
     """Manda alerta por Telegram."""
     try:
@@ -73,6 +128,7 @@ def correr():
 
     polymarket_ok_anterior = True
     kraken_ok_anterior     = True
+    llm_ok_anterior        = True
 
     while estado["corriendo"]:
         try:
@@ -99,7 +155,15 @@ def correr():
                 enviar_alerta("Kraken accesible nuevamente")
             kraken_ok_anterior = kraken_ok
 
-            # 4. Sin mercados tras arranque
+            # 4. LLM cascade (Groq/Cerebras/Mistral)
+            llm_ok, llm_proveedor = verificar_llm_cascade()
+            if not llm_ok and llm_ok_anterior:
+                problemas.append("LLM cascade caído — ningún proveedor responde (Groq/Cerebras/Mistral)")
+            elif llm_ok and not llm_ok_anterior:
+                enviar_alerta(f"LLM cascade OK nuevamente — activo: {llm_proveedor}")
+            llm_ok_anterior = llm_ok
+
+            # 5. Sin mercados tras arranque
             if len(estado.get("mercados", [])) == 0:
                 problemas.append("Sin mercados detectados — revisar agentes Odds/Arbitraje")
 
@@ -108,7 +172,8 @@ def correr():
                 addlog(f"[Debugger] {len(problemas)} problema(s): {problemas[0]}", "error")
                 enviar_alerta(msg)
             else:
-                addlog(f"[Debugger] Todo OK — Polymarket: OK | Kraken: OK")
+                llm_txt = llm_proveedor if llm_ok else "DOWN"
+                addlog(f"[Debugger] Todo OK — Polymarket: OK | Kraken: OK | LLM: {llm_txt}")
 
         except Exception as e:
             addlog(f"[Debugger] Error interno: {e}", "error")
