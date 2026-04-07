@@ -1,16 +1,17 @@
 """
-agentes/momentum.py — Volume Spike + Kalshi Comparison
+agentes/momentum.py — Volume Spike + PredictIt Comparison
 
 Estrategia 1 — Volume Spike:
   Detecta mercados donde el volumen subió >50% en la última hora sin
   que el precio se moviera. Señal de traders informados acumulando
   posición antes de que el precio se ajuste.
 
-Estrategia 2 — Kalshi Comparison:
-  Compara precios YES/NO de Polymarket vs Kalshi para los mismos eventos.
-  Diferencias >10% entre plataformas = edge de arbitraje entre mercados.
+Estrategia 2 — PredictIt vs Polymarket:
+  Compara precios de los mismos eventos políticos en ambas plataformas.
+  PredictIt es dinero real. Diferencias >10% = arbitraje entre mercados.
+  API pública sin auth: predictit.org/api/marketdata/all/
 
-Señal combinada: spike + diferencia Kalshi en el mismo mercado = ALTA confianza.
+Señal combinada: spike + diferencia PredictIt = confianza ALTA.
 """
 
 import time
@@ -18,18 +19,19 @@ import json
 import requests
 from datetime import datetime
 from core.estado import estado, addlog, insertar_mercado
-from config_loader import CONFIG
 
-GAMMA_URL     = "https://gamma-api.polymarket.com"
-KALSHI_URL    = "https://api.elections.kalshi.com/trade-api/v2"
-INTERVALO     = 300    # 5 minutos
+GAMMA_URL      = "https://gamma-api.polymarket.com"
+PREDICTIT_URL  = "https://www.predictit.org/api/marketdata/all/"
+INTERVALO      = 300    # 5 minutos
 
-SPIKE_RATIO   = 1.50   # Volumen actual > 1.5x el de hace 1 hora
-SPIKE_MIN_VOL = 500    # Al menos $500 de volumen nuevo
-KALSHI_EDGE   = 0.10   # Diferencia mínima entre plataformas (10%)
-LIQUIDEZ_MIN  = 1000   # Liquidez mínima en Polymarket
+SPIKE_RATIO    = 1.50   # Volumen actual > 1.5x el de hace 1 hora
+SPIKE_MIN_VOL  = 500    # Al menos $500 de volumen nuevo
+PI_EDGE        = 0.10   # Diferencia mínima con PredictIt (10%)
+LIQUIDEZ_MIN   = 1000   # Liquidez mínima en Polymarket
 
-_vol_history  = {}     # mercado_id → [(timestamp, volumen), ...]
+_vol_history   = {}     # mercado_id → [(timestamp, volumen), ...]
+_pi_cache      = {"data": None, "ts": 0}
+PI_CACHE_TTL   = 300    # Cachear PredictIt 5 min (misma frecuencia que el ciclo)
 
 
 def parsear_lista(valor):
@@ -51,14 +53,11 @@ def registrar_volumen(mercados):
         if mid not in _vol_history:
             _vol_history[mid] = []
         _vol_history[mid].append((ahora, vol))
-        _vol_history[mid] = _vol_history[mid][-15:]  # últimas 75 min
+        _vol_history[mid] = _vol_history[mid][-15:]
 
 
 def detectar_spikes(mercados):
-    """
-    Compara volumen actual vs hace ~1 hora.
-    Retorna mercados donde el volumen creció más de SPIKE_RATIO.
-    """
+    """Detecta mercados con volume spike en la última hora."""
     ahora   = time.time()
     hace_1h = ahora - 3600
     spikes  = []
@@ -71,8 +70,8 @@ def detectar_spikes(mercados):
         if liquidez < LIQUIDEZ_MIN:
             continue
 
-        historial     = _vol_history.get(mid, [])
-        vol_anterior  = None
+        historial    = _vol_history.get(mid, [])
+        vol_anterior = None
         for ts, vol in historial:
             if ts <= hace_1h:
                 vol_anterior = vol
@@ -94,67 +93,83 @@ def detectar_spikes(mercados):
     return spikes[:5]
 
 
-# ─── Kalshi Comparison ────────────────────────────────────────────────────────
+# ─── PredictIt Comparison ─────────────────────────────────────────────────────
 
-def kalshi_headers():
-    key = CONFIG.get("kalshi_api_key", "")
-    return {"Authorization": f"Bearer {key}"} if key else {}
-
-
-def buscar_kalshi(pregunta):
+def obtener_predictit():
     """
-    Busca en Kalshi un mercado equivalente por keywords.
-    Retorna (precio_yes_kalshi, ticker) o (None, None).
+    Descarga todos los mercados de PredictIt (API pública, sin auth).
+    Retorna lista de contratos con precios. Cache 5 min.
     """
-    headers = kalshi_headers()
-    if not headers:
-        return None, None
+    ahora = time.time()
+    if _pi_cache["data"] and ahora - _pi_cache["ts"] < PI_CACHE_TTL:
+        return _pi_cache["data"]
     try:
-        keywords = " ".join(pregunta.split()[:5])
-        r = requests.get(
-            f"{KALSHI_URL}/markets",
-            params={"limit": 10, "status": "open", "search": keywords},
-            headers=headers,
-            timeout=8
-        )
+        r = requests.get(PREDICTIT_URL, timeout=10,
+                         headers={"User-Agent": "Mozilla/5.0"})
         markets = r.json().get("markets", [])
-        if not markets:
-            return None, None
-        best = markets[0]
-        yes_price = best.get("yes_ask") or best.get("last_price")
-        if yes_price is not None:
-            return round(float(yes_price) / 100, 4), best.get("ticker", "")
-    except:
-        pass
-    return None, None
+
+        # Aplanar: un contrato por fila con su precio
+        contratos = []
+        for m in markets:
+            nombre = m.get("name", "").lower()
+            for c in m.get("contracts", []):
+                last = c.get("lastTradePrice")
+                best_yes = c.get("bestYesBid")
+                precio = last or best_yes
+                if precio and float(precio) > 0:
+                    contratos.append({
+                        "nombre":    nombre,
+                        "contrato":  c.get("name", "").lower(),
+                        "precio":    float(precio),
+                        "ticker":    c.get("id"),
+                    })
+
+        _pi_cache["data"] = contratos
+        _pi_cache["ts"]   = ahora
+        addlog(f"[Momentum] PredictIt: {len(contratos)} contratos cargados", "info")
+        return contratos
+    except Exception as e:
+        addlog(f"[Momentum] Error cargando PredictIt: {e}", "error")
+        return []
 
 
-def comparar_kalshi(m_raw):
+def buscar_en_predictit(pregunta, contratos_pi):
     """
-    Retorna (edge, precio_kalshi) comparando YES de Polymarket vs Kalshi.
-    edge > 0 significa Kalshi cree que vale más → comprar YES en Polymarket.
+    Busca el contrato más relevante en PredictIt para una pregunta de Polymarket.
+    Matching por palabras clave compartidas.
+    Retorna precio (0-1) o None si no hay match suficiente.
     """
-    outcomes = parsear_lista(m_raw.get("outcomes", []))
-    precios  = parsear_lista(m_raw.get("outcomePrices", []))
-    precio_pm = None
-    for o, p in zip(outcomes, precios):
-        if "yes" in o.lower():
-            try: precio_pm = float(p)
-            except: pass
-    if not precio_pm:
+    palabras = set(pregunta.lower().split())
+    # Filtrar stopwords
+    stopwords = {"will", "the", "a", "an", "be", "by", "in", "on",
+                 "to", "of", "for", "is", "at", "or", "and", "win",
+                 "2024", "2025", "2026", "?"}
+    palabras -= stopwords
+
+    if len(palabras) < 2:
         return None, None
 
-    precio_kalshi, ticker = buscar_kalshi(m_raw.get("question", ""))
-    if not precio_kalshi:
-        return None, None
+    mejor_score  = 0
+    mejor_precio = None
+    mejor_nombre = None
 
-    edge = precio_kalshi - precio_pm
-    return round(edge, 4), precio_kalshi
+    for c in contratos_pi:
+        texto = c["nombre"] + " " + c["contrato"]
+        palabras_pi = set(texto.split()) - stopwords
+        comunes = len(palabras & palabras_pi)
+        score   = comunes / max(len(palabras), 1)
+
+        if score > mejor_score and score >= 0.35:  # al menos 35% de palabras en común
+            mejor_score  = score
+            mejor_precio = c["precio"]
+            mejor_nombre = c["contrato"]
+
+    return mejor_precio, mejor_nombre
 
 
 # ─── Crear oportunidad para el Trader ────────────────────────────────────────
 
-def crear_op(m_raw, spike=None, kalshi_edge=None, kalshi_precio=None):
+def crear_op(m_raw, spike=None, pi_precio=None, pi_nombre=None):
     """Convierte señales de momentum en formato para el Trader."""
     pregunta  = m_raw.get("question", "")
     fecha_fin = (m_raw.get("endDate") or "")[:10] or "N/A"
@@ -172,27 +187,38 @@ def crear_op(m_raw, spike=None, kalshi_edge=None, kalshi_precio=None):
     if not precio_yes or precio_yes < 0.10 or precio_yes > 0.90:
         return None
 
-    # Fair value: Kalshi si hay, sino spike heurístico
-    if kalshi_precio and kalshi_edge and kalshi_edge > KALSHI_EDGE:
-        prob = kalshi_precio
-    elif spike:
-        prob = min(0.90, precio_yes + 0.08)
-    else:
+    # Calcular edge
+    pi_edge = None
+    if pi_precio:
+        pi_edge = pi_precio - precio_yes
+
+    tiene_spike  = spike is not None
+    tiene_pi     = pi_edge and pi_edge > PI_EDGE
+
+    # Necesita al menos una señal fuerte
+    if not tiene_spike and not tiene_pi:
         return None
+
+    # Fair value
+    if tiene_pi:
+        prob = pi_precio
+    else:
+        prob = min(0.90, precio_yes + 0.08)
 
     edge = prob - precio_yes
     if edge < 0.05:
         return None
 
-    tiene_spike  = spike is not None
-    tiene_kalshi = kalshi_edge and kalshi_edge > KALSHI_EDGE
-    confianza    = "ALTA" if (tiene_spike and tiene_kalshi) else "MEDIA"
+    confianza = "ALTA" if (tiene_spike and tiene_pi) else "MEDIA"
 
     señales = []
     if tiene_spike:
         señales.append(f"spike x{spike['ratio']} (+${spike['vol_nuevo']:,.0f})")
-    if tiene_kalshi:
-        señales.append(f"Kalshi {round(kalshi_precio*100,1)}% vs PM {round(precio_yes*100,1)}%")
+    if tiene_pi:
+        señales.append(
+            f"PredictIt {round(pi_precio*100,1)}% vs PM {round(precio_yes*100,1)}%"
+            + (f" ({pi_nombre[:30]})" if pi_nombre else "")
+        )
 
     return {
         "id":                    f"mom_{m_raw.get('id','')[:25]}_Yes",
@@ -226,16 +252,12 @@ def crear_op(m_raw, spike=None, kalshi_edge=None, kalshi_precio=None):
 # ─── Loop principal ───────────────────────────────────────────────────────────
 
 def correr():
-    kalshi_ok = bool(CONFIG.get("kalshi_api_key", ""))
-    addlog(
-        f"[Momentum] Iniciado — Spike {'✓' if True else ''} | "
-        f"Kalshi {'✓' if kalshi_ok else '✗ (sin key)'}",
-        "info"
-    )
+    addlog("[Momentum] Iniciado — Volume Spike + PredictIt comparison | ciclo 5min", "info")
     time.sleep(60)  # Primer ciclo: solo registrar snapshot base
 
     while estado["corriendo"]:
         try:
+            # Obtener mercados de Polymarket
             r = requests.get(f"{GAMMA_URL}/markets", params={
                 "active": "true", "closed": "false", "limit": 500
             }, timeout=15)
@@ -243,52 +265,66 @@ def correr():
 
             registrar_volumen(mercados_raw)
             spikes      = detectar_spikes(mercados_raw)
-            encontrados = []
-            procesados  = set()
+            contratos_pi = obtener_predictit()
+            encontrados  = set()
+            total_ops    = []
 
-            # Señal 1: Volume spike (+ Kalshi si hay key)
+            # Señal 1: Volume spike (+ PredictIt si hay match)
             for spike in spikes:
                 m   = spike["mercado"]
                 mid = m.get("id", "")
-                procesados.add(mid)
+                encontrados.add(mid)
 
-                k_edge, k_precio = comparar_kalshi(m) if kalshi_ok else (None, None)
-                op = crear_op(m, spike=spike, kalshi_edge=k_edge, kalshi_precio=k_precio)
+                pi_precio, pi_nombre = buscar_en_predictit(
+                    m.get("question", ""), contratos_pi
+                )
+                op = crear_op(m, spike=spike, pi_precio=pi_precio, pi_nombre=pi_nombre)
                 if op:
-                    encontrados.append(op)
+                    total_ops.append(op)
                     insertar_mercado(op)
-                    tipo = "SPIKE+KALSHI" if (k_edge and k_edge > KALSHI_EDGE) else "SPIKE"
+                    tipo = "SPIKE+PREDICTIT" if (pi_precio and pi_precio - float(
+                        next((p for o, p in zip(
+                            parsear_lista(m.get("outcomes", [])),
+                            parsear_lista(m.get("outcomePrices", []))
+                        ) if "yes" in o.lower()), 0.5)) > PI_EDGE) else "SPIKE"
                     addlog(
                         f"[Momentum] {tipo}: {m.get('question','')[:45]}... "
                         f"| {op['razonamiento']} | {op['confianza']}",
                         "win"
                     )
 
-            # Señal 2: Solo Kalshi (sin spike) para los primeros 100 mercados
-            if kalshi_ok:
-                for m in mercados_raw[:100]:
+            # Señal 2: Solo PredictIt (sin spike necesario) — primeros 200 mercados
+            if contratos_pi:
+                for m in mercados_raw[:200]:
                     mid = m.get("id", "")
-                    if mid in procesados: continue
+                    if mid in encontrados: continue
                     if float(m.get("liquidity", 0) or 0) < LIQUIDEZ_MIN: continue
 
-                    k_edge, k_precio = comparar_kalshi(m)
-                    if k_edge and k_edge > KALSHI_EDGE:
-                        op = crear_op(m, spike=None, kalshi_edge=k_edge, kalshi_precio=k_precio)
-                        if op:
-                            encontrados.append(op)
-                            insertar_mercado(op)
-                            addlog(
-                                f"[Momentum] KALSHI: {m.get('question','')[:45]}... "
-                                f"| {op['razonamiento']}",
-                                "win"
-                            )
-                    time.sleep(0.15)  # Respetar rate limit de Kalshi
+                    pi_precio, pi_nombre = buscar_en_predictit(
+                        m.get("question", ""), contratos_pi
+                    )
+                    if not pi_precio: continue
 
-            if not encontrados:
-                n_spikes = len(spikes)
+                    op = crear_op(m, spike=None, pi_precio=pi_precio, pi_nombre=pi_nombre)
+                    if op:
+                        total_ops.append(op)
+                        insertar_mercado(op)
+                        addlog(
+                            f"[Momentum] PREDICTIT: {m.get('question','')[:45]}... "
+                            f"| {op['razonamiento']}",
+                            "win"
+                        )
+
+            if total_ops:
                 addlog(
-                    f"[Momentum] {'%d spikes sin edge suficiente' % n_spikes if n_spikes else 'Sin señales en este ciclo'}"
+                    f"[Momentum] {len(total_ops)} oportunidades | "
+                    f"mejor edge: {round(max(o['edge_calculado'] for o in total_ops)*100,1)}%",
+                    "win"
                 )
+            else:
+                n = len(spikes)
+                pi_txt = f"{len(contratos_pi)} contratos PI" if contratos_pi else "PI sin datos"
+                addlog(f"[Momentum] {n} spikes | {pi_txt} | sin señales suficientes")
 
         except Exception as e:
             addlog(f"[Momentum] Error: {e}", "error")
