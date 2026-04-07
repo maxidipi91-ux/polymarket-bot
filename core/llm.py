@@ -103,18 +103,25 @@ Sé conciso. Solo el JSON, nada más."""
         )
 
         with urllib.request.urlopen(req, timeout=15) as resp:
-            data     = json.loads(resp.read().decode("utf-8"))
+            data      = json.loads(resp.read().decode("utf-8"))
             contenido = data["choices"][0]["message"]["content"].strip()
 
-        # Extraer JSON de la respuesta (Qwen a veces agrega texto extra)
+        # Qwen3 devuelve <think>...</think> antes del JSON — lo eliminamos
         import re
-        match = re.search(r'\{.*?\}', contenido, re.DOTALL)
-        if match:
-            resultado = json.loads(match.group())
-            decision  = resultado.get("decision", "ESPERAR").upper()
-            if decision not in ("APOSTAR", "SKIP", "ESPERAR"):
-                decision = "ESPERAR"
-            return {"decision": decision, "razon": resultado.get("razon", "")}
+        contenido = re.sub(r'<think>.*?</think>', '', contenido, flags=re.DOTALL).strip()
+
+        # Buscar el último JSON en la respuesta (el más completo)
+        matches = re.findall(r'\{[^{}]*\}', contenido)
+        for raw in reversed(matches):
+            try:
+                resultado = json.loads(raw)
+                if "decision" in resultado:
+                    decision = resultado["decision"].upper()
+                    if decision not in ("APOSTAR", "SKIP", "ESPERAR"):
+                        decision = "ESPERAR"
+                    return {"decision": decision, "razon": resultado.get("razon", "")}
+            except:
+                continue
 
     except Exception as e:
         addlog(f"[LLM] Error llamando Groq: {e}", "error")
