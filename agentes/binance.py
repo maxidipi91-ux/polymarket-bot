@@ -40,7 +40,8 @@ LIQUIDEZ_MIN   = 1000   # Mínimo $1,000 de liquidez
 # Cache de señales externas (se actualizan cada hora para no spamear APIs)
 _cache_fng      = {"valor": None, "label": None, "ts": 0}
 _cache_funding  = {"BTCUSDT": None, "ETHUSDT": None, "ts": 0}
-CACHE_TTL       = 3600  # 1 hora
+CACHE_TTL_FNG      = 86400  # Fear & Greed se actualiza 1 vez por día
+CACHE_TTL_FUNDING  = 3600   # Funding rates cada 8h, chequeamos cada 1h por si acaso
 
 
 # ─── Fear & Greed + Funding rates ────────────────────────────────────────────
@@ -48,7 +49,7 @@ CACHE_TTL       = 3600  # 1 hora
 def obtener_fear_greed():
     """Fear & Greed Index (0=miedo extremo, 100=codicia extrema). Cache 1h."""
     ahora = time.time()
-    if _cache_fng["valor"] is not None and ahora - _cache_fng["ts"] < CACHE_TTL:
+    if _cache_fng["valor"] is not None and ahora - _cache_fng["ts"] < CACHE_TTL_FNG:
         return _cache_fng["valor"], _cache_fng["label"]
     try:
         r = requests.get(FNG_URL, timeout=5)
@@ -69,7 +70,7 @@ def obtener_funding_rates():
     Cache 1h.
     """
     ahora = time.time()
-    if _cache_funding["BTCUSDT"] is not None and ahora - _cache_funding["ts"] < CACHE_TTL:
+    if _cache_funding["BTCUSDT"] is not None and ahora - _cache_funding["ts"] < CACHE_TTL_FUNDING:
         return dict(_cache_funding)
     try:
         for symbol, bybit_sym in [("BTCUSDT", "BTCUSDT"), ("ETHUSDT", "ETHUSDT")]:
