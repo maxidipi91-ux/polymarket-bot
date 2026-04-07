@@ -11,7 +11,7 @@ import urllib.error
 from core.estado import addlog
 
 GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "qwen/qwen3-32b"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 def _get_groq_key():
