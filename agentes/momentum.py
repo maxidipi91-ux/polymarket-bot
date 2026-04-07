@@ -169,7 +169,17 @@ def buscar_en_predictit(pregunta, contratos_pi):
         score   = comunes / max(len(palabras), 1)
 
         # Exige 50% de palabras en común Y al menos 3 palabras clave coincidentes
-        if score > mejor_score and score >= 0.50 and comunes >= 3:
+        if score < 0.50 or comunes < 3:
+            continue
+
+        # Verificar que al menos una palabra de la pregunta aparezca en el
+        # contrato específico (no solo en el nombre del mercado). Evita que
+        # "Ricardo Belmont" matchee el contrato "carlos álvarez".
+        palabras_contrato = set(c["contrato"].lower().split()) - stopwords
+        if not (palabras & palabras_contrato):
+            continue
+
+        if score > mejor_score:
             mejor_score  = score
             mejor_precio = c["precio"]
             mejor_nombre = c["contrato"]
