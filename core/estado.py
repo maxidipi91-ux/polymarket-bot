@@ -20,7 +20,6 @@ estado = {
     "operaciones":      [],
     "mercados":         [],
     "log":              [],
-    "ollama_disponible": False,
     "telegram_activo":  False,
     "ciclo_num":        0,
 }

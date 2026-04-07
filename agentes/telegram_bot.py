@@ -105,8 +105,7 @@ def procesar_comando(texto, chat_id):
             f"📈 P&L: ${estado['pnl']:.2f}\n"
             f"🎯 Ops: {ops} ({ganadas} ganadas)\n"
             f"🔓 Abiertas: {len(abiertas)}{lineas_abiertas}\n"
-            f"🔢 Ciclo: #{estado['ciclo_num']}\n"
-            f"🤖 Ollama: {'✅' if estado['ollama_disponible'] else '❌'}"
+            f"🔢 Ciclo: #{estado['ciclo_num']}"
         )
 
     elif "/pausa" in texto or "pausá" in texto or "pausa" in texto:
