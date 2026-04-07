@@ -12,7 +12,6 @@ SETUP:
 import time
 import requests
 import json
-import os
 from datetime import datetime
 from core.estado import estado, addlog, get_operaciones
 from core.database import obtener_estadisticas

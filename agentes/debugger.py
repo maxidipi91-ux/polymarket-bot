@@ -7,7 +7,7 @@ Verifica Polymarket, Kraken y el cascade LLM (Groq/Cerebras/Mistral).
 
 import time
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 from core.estado import estado, addlog
 
 INTERVALO = 600  # Cada 10 minutos
