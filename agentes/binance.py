@@ -25,6 +25,8 @@ from core.database import guardar_mercado, guardar_analisis
 
 KRAKEN_URL     = "https://api.kraken.com/0/public"
 GAMMA_URL      = "https://gamma-api.polymarket.com"
+BYBIT_URL      = "https://api.bybit.com/v5/market"
+FNG_URL        = "https://api.alternative.me/fng/?limit=1"
 
 # Mapeo symbol Binance → Kraken
 KRAKEN_PAIRS   = {"BTCUSDT": "XBTUSD", "ETHUSDT": "ETHUSD"}
@@ -34,6 +36,95 @@ EDGE_MIN       = 0.10   # Edge mínimo 10%
 MAX_MINS       = 120    # Solo mercados que vencen en las próximas 2 horas
 MIN_MINS       = 2      # Descartar si quedan menos de 2 minutos (riesgo de ejecución)
 LIQUIDEZ_MIN   = 1000   # Mínimo $1,000 de liquidez
+
+# Cache de señales externas (se actualizan cada hora para no spamear APIs)
+_cache_fng      = {"valor": None, "label": None, "ts": 0}
+_cache_funding  = {"BTCUSDT": None, "ETHUSDT": None, "ts": 0}
+CACHE_TTL       = 3600  # 1 hora
+
+
+# ─── Fear & Greed + Funding rates ────────────────────────────────────────────
+
+def obtener_fear_greed():
+    """Fear & Greed Index (0=miedo extremo, 100=codicia extrema). Cache 1h."""
+    ahora = time.time()
+    if _cache_fng["valor"] is not None and ahora - _cache_fng["ts"] < CACHE_TTL:
+        return _cache_fng["valor"], _cache_fng["label"]
+    try:
+        r = requests.get(FNG_URL, timeout=5)
+        data = r.json()["data"][0]
+        _cache_fng["valor"] = int(data["value"])
+        _cache_fng["label"] = data["value_classification"]
+        _cache_fng["ts"]    = ahora
+        return _cache_fng["valor"], _cache_fng["label"]
+    except:
+        return None, None
+
+
+def obtener_funding_rates():
+    """
+    Funding rates de BTC y ETH desde Bybit (sin restricciones geo).
+    Positivo = longs pagan a shorts (mercado sobreextendido alcista).
+    Negativo = shorts pagan a longs (mercado sobreextendido bajista).
+    Cache 1h.
+    """
+    ahora = time.time()
+    if _cache_funding["BTCUSDT"] is not None and ahora - _cache_funding["ts"] < CACHE_TTL:
+        return dict(_cache_funding)
+    try:
+        for symbol, bybit_sym in [("BTCUSDT", "BTCUSDT"), ("ETHUSDT", "ETHUSDT")]:
+            r = requests.get(f"{BYBIT_URL}/funding/history", params={
+                "category": "linear", "symbol": bybit_sym, "limit": 1
+            }, timeout=5)
+            data = r.json()
+            lista = data.get("result", {}).get("list", [])
+            if lista:
+                _cache_funding[symbol] = float(lista[0]["fundingRate"])
+        _cache_funding["ts"] = ahora
+    except:
+        pass
+    return dict(_cache_funding)
+
+
+def interpretar_señales(fng_valor, funding_btc, es_above):
+    """
+    Combina Fear & Greed + Funding rate para ajustar la confianza.
+    Retorna (boost_edge: float, nota: str)
+    boost_edge > 0 refuerza la señal, < 0 la debilita.
+    """
+    notas = []
+    boost = 0.0
+
+    if fng_valor is not None:
+        if fng_valor <= 25:
+            notas.append(f"Miedo extremo (FnG={fng_valor})")
+            if not es_above:  # apostar a que baja cuando hay miedo extremo
+                boost += 0.05
+            else:
+                boost -= 0.03
+        elif fng_valor >= 75:
+            notas.append(f"Codicia extrema (FnG={fng_valor})")
+            if es_above:  # apostar a que sube cuando hay codicia
+                boost += 0.03
+            else:
+                boost -= 0.03
+
+    if funding_btc is not None:
+        pct = round(funding_btc * 100, 4)
+        if funding_btc > 0.001:  # longs sobreextendidos → señal bajista
+            notas.append(f"Funding alto +{pct}% (longs sobreextendidos)")
+            if not es_above:
+                boost += 0.05
+            else:
+                boost -= 0.04
+        elif funding_btc < -0.001:  # shorts sobreextendidos → señal alcista
+            notas.append(f"Funding negativo {pct}% (shorts sobreextendidos)")
+            if es_above:
+                boost += 0.05
+            else:
+                boost -= 0.04
+
+    return boost, " | ".join(notas) if notas else ""
 
 
 # ─── Kraken: precio y volatilidad ────────────────────────────────────────────
@@ -159,7 +250,7 @@ def parsear_lista(valor):
 
 # ─── Análisis de un mercado ───────────────────────────────────────────────────
 
-def analizar(m_raw, precios_spot, vols):
+def analizar(m_raw, precios_spot, vols, señales=None):
     """
     Recibe un mercado crudo de Polymarket y los precios/vols de Binance.
     Devuelve un dict enriquecido si hay edge, o None si no lo hay.
@@ -237,6 +328,16 @@ def analizar(m_raw, precios_spot, vols):
     if mejor_outcome is None or abs(mejor_edge) < EDGE_MIN:
         return None
 
+    # Ajuste por Fear & Greed + Funding rate
+    nota_señales = ""
+    if señales:
+        fng_v    = señales.get("fng_valor")
+        fund_btc = señales.get("funding_btc")
+        boost, nota_señales = interpretar_señales(fng_v, fund_btc, es_above)
+        mejor_edge = mejor_edge + (boost if mejor_edge > 0 else -boost)
+        if abs(mejor_edge) < EDGE_MIN:
+            return None  # señales externas debilitaron el edge por debajo del mínimo
+
     confianza = "ALTA" if abs(mejor_edge) >= 0.15 else "MEDIA"
     mercado_id = f"binance_{asset}_{pregunta[:35]}_{mejor_outcome}"
 
@@ -270,6 +371,7 @@ def analizar(m_raw, precios_spot, vols):
             f"{asset} ${spot:,.0f} | strike ${strike:,.0f} | "
             f"{mins:.0f}min | fair {round(fair_yes*100,1)}% | "
             f"PM {round(mejor_precio_pm*100,1)}% | edge {round(mejor_edge*100,1)}%"
+            + (f" | {nota_señales}" if nota_señales else "")
         ),
     }
 
@@ -300,9 +402,21 @@ def correr():
                     time.sleep(1)
                 continue
 
+            # Fear & Greed + Funding rates
+            fng_valor, fng_label = obtener_fear_greed()
+            fundings             = obtener_funding_rates()
+            funding_btc          = fundings.get("BTCUSDT")
+            señales = {
+                "fng_valor":   fng_valor,
+                "fng_label":   fng_label,
+                "funding_btc": funding_btc,
+            }
+
+            fng_txt     = f"FnG={fng_valor} ({fng_label})" if fng_valor else "FnG=N/A"
+            funding_txt = f"Funding={round(funding_btc*100,4)}%" if funding_btc else "Funding=N/A"
             addlog(
                 f"[Kraken] BTC ${btc:,.0f} | ETH ${eth:,.0f} | "
-                f"vol BTC {round(vols['BTCUSDT']*100,0)}%",
+                f"vol BTC {round(vols['BTCUSDT']*100,0)}% | {fng_txt} | {funding_txt}",
                 "info"
             )
 
@@ -320,7 +434,7 @@ def correr():
             # 3. Analizar y filtrar
             encontrados = []
             for m in mercados_raw:
-                resultado = analizar(m, precios_spot, vols)
+                resultado = analizar(m, precios_spot, vols, señales)
                 if resultado:
                     encontrados.append(resultado)
                     guardar_mercado(resultado["id"], resultado["pregunta"], resultado["fecha_fin"])
