@@ -123,11 +123,14 @@ def calcular_monto(mercado):
     riesgo = estado["riesgo_por_op"] * mult
 
     # Near-resolution: rango extendido hasta 99%, edge mínimo 1%
+    # Odds outrights: rango extendido hacia abajo hasta 5% (campeonatos con muchos candidatos)
     es_near_res = mercado.get("metodo_analisis") == "NearResolution"
+    es_odds     = str(mercado.get("metodo_analisis", "")).startswith("Odds/")
+    precio_min  = 0.05 if es_odds else PRECIO_MIN_APOSTAR
     precio_max  = 0.99 if es_near_res else PRECIO_MAX_APOSTAR
     edge_min    = 0.01 if es_near_res else EDGE_MINIMO
 
-    if precio < PRECIO_MIN_APOSTAR or precio > precio_max:
+    if precio < precio_min or precio > precio_max:
         addlog(f"[Trader] Precio {round(precio*100,1)}% fuera de rango — skip", "info")
         return 0
 
