@@ -74,14 +74,14 @@ def analizar(m_raw):
     if not outcomes or not precios:
         return None
 
-    mejor = None
-    mejor_prob = 0.0
+    mejor_prob    = 0.0
+    mejor_outcome = None
 
     for outcome, precio_str in zip(outcomes, precios):
         try:
             prob = float(precio_str)
             if prob >= PROB_MIN and prob > mejor_prob:
-                mejor_prob   = prob
+                mejor_prob    = prob
                 mejor_outcome = outcome
         except:
             continue

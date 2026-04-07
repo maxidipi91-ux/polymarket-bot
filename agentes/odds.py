@@ -434,7 +434,6 @@ def correr():
                 time.sleep(1)  # Respetar rate limit
 
             # Actualizar estado con todas las oportunidades encontradas
-            # Reutilizamos merge_mercados_binance pero con prefijo "odds_"
             from core.estado import _lock
             import core.estado as _estado_mod
             with _lock:
