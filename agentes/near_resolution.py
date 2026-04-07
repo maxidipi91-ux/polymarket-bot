@@ -139,10 +139,15 @@ def correr():
         try:
             addlog("[NearRes] Escaneando mercados near-resolution...")
 
-            r = requests.get(f"{GAMMA_URL}/markets", params={
-                "active": "true", "closed": "false", "limit": 500
-            }, timeout=15)
-            mercados_raw = r.json()
+            mercados_raw = []
+            for offset in [0, 500]:
+                r = requests.get(f"{GAMMA_URL}/markets", params={
+                    "active": "true", "closed": "false", "limit": 500, "offset": offset
+                }, timeout=15)
+                batch = r.json()
+                mercados_raw.extend(batch)
+                if len(batch) < 500:
+                    break
 
             encontrados = []
             for m in mercados_raw:

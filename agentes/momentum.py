@@ -19,6 +19,7 @@ import json
 import requests
 from datetime import datetime
 from core.estado import estado, addlog, insertar_mercado
+from core.database import guardar_mercado
 
 GAMMA_URL      = "https://gamma-api.polymarket.com"
 PREDICTIT_URL  = "https://www.predictit.org/api/marketdata/all/"
@@ -288,6 +289,7 @@ def correr():
                 if op:
                     total_ops.append(op)
                     insertar_mercado(op)
+                    guardar_mercado(op["id"], op["pregunta"], op["fecha_fin"])
                     tipo = "SPIKE+PREDICTIT" if (pi_precio and pi_precio - float(
                         next((p for o, p in zip(
                             parsear_lista(m.get("outcomes", [])),
@@ -315,6 +317,7 @@ def correr():
                     if op:
                         total_ops.append(op)
                         insertar_mercado(op)
+                        guardar_mercado(op["id"], op["pregunta"], op["fecha_fin"])
                         addlog(
                             f"[Momentum] PREDICTIT: {m.get('question','')[:45]}... "
                             f"| {op['razonamiento']}",
