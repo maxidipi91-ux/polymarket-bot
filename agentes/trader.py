@@ -12,7 +12,7 @@ from datetime import datetime
 from core.estado import (estado, addlog, insertar_operacion,
                          actualizar_saldo, actualizar_pnl, get_mercados,
                          get_operaciones)
-from core.database import guardar_operacion, get_mercados_apostados
+from core.database import guardar_operacion, get_mercados_apostados, guardar_memoria
 
 INTERVALO_SEGUNDOS  = 90
 apostados           = set()
@@ -93,6 +93,9 @@ def ajustar_multiplicador(gano):
         cambio      = abs(multiplicador_actual - mult_anterior)
         mult_actual = multiplicador_actual
         racha       = racha_actual
+
+    # Persistir en DB para sobrevivir reinicios
+    guardar_memoria("multiplicador", f"{mult_actual},{racha}")
 
     if cambio >= UMBRAL_NOTIFICAR:
         try:
@@ -205,12 +208,31 @@ def ejecutar_apuesta(mercado):
 
 
 def correr():
+    global multiplicador_actual, racha_actual
     addlog("[Trader] v3 iniciado — anti-martingale, límite por tema, edge 8%", "info")
     time.sleep(15)
 
     # Restaurar apostados desde DB para sobrevivir reinicios
     apostados.update(get_mercados_apostados())
     addlog(f"[Trader] {len(apostados)} mercados ya apostados cargados desde DB", "info")
+
+    # Restaurar multiplicador y racha desde DB
+    try:
+        import sqlite3
+        from core.database import DB_PATH
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT contenido FROM memoria WHERE tipo='multiplicador' ORDER BY id DESC LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+        if row:
+            partes = row[0].split(",")
+            with _mult_lock:
+                multiplicador_actual = float(partes[0])
+                racha_actual = int(partes[1])
+            addlog(f"[Trader] Multiplicador restaurado: {multiplicador_actual}x | racha: {racha_actual:+d}", "info")
+    except:
+        pass
 
     while estado["corriendo"]:
         try:
