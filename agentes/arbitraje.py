@@ -214,6 +214,7 @@ def buscar_nichos_stale(mercados):
 
 def registrar_oportunidad(op):
     """Convierte una oportunidad de arbitraje en formato mercado para el Trader."""
+    from core.database import guardar_mercado
     m = op["mercado"]
 
     # Para spread garantizado, registrar ambos lados
@@ -247,6 +248,7 @@ def registrar_oportunidad(op):
                 "metodo_analisis":      "Arbitraje/Spread",
             }
             insertar_mercado(mercado_fmt)
+            guardar_mercado(mercado_fmt["id"], mercado_fmt["pregunta"], mercado_fmt["fecha_fin"])
 
     elif op["tipo"] in ["inconsistencia_logica", "nicho_stale"]:
         precio = m["precio_yes"]
@@ -278,6 +280,7 @@ def registrar_oportunidad(op):
             "metodo_analisis":      f"Arbitraje/{op['tipo']}",
         }
         insertar_mercado(mercado_fmt)
+        guardar_mercado(mercado_fmt["id"], mercado_fmt["pregunta"], mercado_fmt["fecha_fin"])
 
 
 # ─── Loop principal ──────────────────────────────────────────────────────────
