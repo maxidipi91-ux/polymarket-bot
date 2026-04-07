@@ -298,13 +298,20 @@ setModo('simulacion');
 def index():
     return render_template_string(DASHBOARD)
 
-if __name__ == "__main__":
-    print("=" * 50)
-    print("Claudio v0.2 — http://localhost:5000")
-    print("=" * 50)
-    # Auto-arranque en modo simulacion al iniciar el servidor
+
+def _startup():
+    """Inicialización de Claudio — corre tanto con gunicorn como con python directo."""
     init_db()
     estado["modo"] = "simulacion"
     t = threading.Thread(target=orquestador.iniciar, daemon=True)
     t.start()
+
+
+# Arranca al importar el módulo (gunicorn) y también al correr directo
+_startup()
+
+if __name__ == "__main__":
+    print("=" * 50)
+    print("Claudio v0.2 — http://localhost:5000")
+    print("=" * 50)
     app.run(host="0.0.0.0", debug=False, port=5000, use_reloader=False)
