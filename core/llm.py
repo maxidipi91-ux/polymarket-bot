@@ -11,7 +11,7 @@ import urllib.error
 from core.estado import addlog
 
 GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "qwen-qwq-32b"
+GROQ_MODEL = "qwen/qwen3-32b"
 
 
 def _get_groq_key():
@@ -98,6 +98,7 @@ Sé conciso. Solo el JSON, nada más."""
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type":  "application/json",
+                "User-Agent":    "Mozilla/5.0",
             }
         )
 
