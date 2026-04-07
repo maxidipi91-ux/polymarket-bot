@@ -48,7 +48,7 @@ def _obtener_mercados_cached():
     try:
         resultado = []
         for offset in [0, 500]:
-            params = {"active": "true", "closed": "false", "limit": 500, "offset": offset}
+            params = {"active": "true", "closed": "false", "limit": 500, "offset": offset, "order": "volume24hr", "ascending": "false"}
             r = requests.get(f"{GAMMA_URL}/markets", params=params, timeout=10)
             batch = r.json()
             resultado.extend(batch)
