@@ -257,11 +257,17 @@ def correr():
 
     while estado["corriendo"]:
         try:
-            # Obtener mercados de Polymarket
-            r = requests.get(f"{GAMMA_URL}/markets", params={
-                "active": "true", "closed": "false", "limit": 500
-            }, timeout=15)
-            mercados_raw = r.json()
+            # Obtener mercados de Polymarket — 2 páginas = hasta 1,000 mercados
+            mercados_raw = []
+            for offset in [0, 500]:
+                r = requests.get(f"{GAMMA_URL}/markets", params={
+                    "active": "true", "closed": "false",
+                    "limit": 500, "offset": offset
+                }, timeout=15)
+                batch = r.json()
+                mercados_raw.extend(batch)
+                if len(batch) < 500:
+                    break  # No hay más páginas
 
             registrar_volumen(mercados_raw)
             spikes      = detectar_spikes(mercados_raw)
@@ -293,9 +299,9 @@ def correr():
                         "win"
                     )
 
-            # Señal 2: Solo PredictIt (sin spike necesario) — primeros 200 mercados
+            # Señal 2: Solo PredictIt (sin spike necesario) — todos los mercados
             if contratos_pi:
-                for m in mercados_raw[:200]:
+                for m in mercados_raw:
                     mid = m.get("id", "")
                     if mid in encontrados: continue
                     if float(m.get("liquidity", 0) or 0) < LIQUIDEZ_MIN: continue

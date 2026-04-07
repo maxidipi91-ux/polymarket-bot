@@ -181,8 +181,12 @@ def buscar_inconsistencias_logicas(mercados):
 
 def buscar_nichos_stale(mercados):
     """
-    Mercados con poca liquidez donde el precio probablemente no se actualizó.
-    Son los más ineficientes — menos bots los miran.
+    Mercados con precio probablemente desactualizado.
+    Indicadores reales de staleness (no solo distancia del 50%):
+    - Ratio volumen/liquidez bajo: poca actividad reciente vs capital depositado
+    - Liquidez baja: menos participantes actualizando el precio
+    - Precio alejado del 50%: el mercado tiene opinión fuerte → más fácil que esté stale
+    Score combinado de los tres factores.
     """
     nichos = []
     for m in mercados:
@@ -190,20 +194,35 @@ def buscar_nichos_stale(mercados):
         if m["liquidez"] > LIQUIDEZ_NICHO_MAX: continue
         if m["liquidez"] < 500: continue
 
-        precio = m["precio_yes"]
+        precio   = m["precio_yes"]
+        liquidez = m["liquidez"]
+        volumen  = m["volumen"]
 
-        # Filtro de precio — igual que el Trader (15%-85%)
         if precio < 0.15 or precio > 0.85:
             continue
 
+        # Indicador 1: ratio volumen/liquidez — bajo = poco trading reciente
+        # Mercados activos tienen volumen ≥ liquidez. Stale: volumen << liquidez
+        ratio_vol = volumen / max(liquidez, 1)
+
+        # Indicador 2: precio alejado del 50% (opinión fuerte sin mucho volumen = sospechoso)
         margen = abs(precio - 0.5)
-        if margen > 0.10:
+        if margen < 0.08:
+            continue  # Muy cerca del 50% = sin señal clara
+
+        # Score: mayor score = más probable que esté stale
+        # Bajo ratio_vol + alto margen + baja liquidez = stale
+        stale_score = (margen * 2) / max(ratio_vol, 0.1) / (liquidez / 500)
+
+        if stale_score >= 0.5:
             nichos.append({
-                "tipo":        "nicho_stale",
-                "mercado":     m,
-                "margen":      round(margen, 4),
+                "tipo":         "nicho_stale",
+                "mercado":      m,
+                "margen":       round(margen, 4),
                 "ganancia_pct": round(margen * 100, 2),
-                "prioridad":   margen / (m["liquidez"] / 1000),
+                "ratio_vol":    round(ratio_vol, 3),
+                "stale_score":  round(stale_score, 3),
+                "prioridad":    stale_score,
             })
 
     nichos.sort(key=lambda x: x["prioridad"], reverse=True)
