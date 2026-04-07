@@ -1,0 +1,13 @@
+{
+  "_aviso": "Este archivo NO debe contener credenciales reales. Usá .env (ver .env.example).",
+  "telegram_token": "",
+  "telegram_chat_id": "",
+  "news_api_key": "",
+  "football_data_token": "",
+  "odds_api_key": "",
+  "ollama_url": "http://localhost:11434",
+  "ollama_model": "mistral",
+  "riesgo_por_op": 10.0,
+  "saldo_inicial": 1000.0,
+  "modo": "simulacion"
+}
