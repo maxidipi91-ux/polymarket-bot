@@ -333,40 +333,26 @@ def correr():
                     m = op["mercado"]
                     decision, razon, noticias = analizar_nicho(m["pregunta"], m["precio_yes"])
 
-                    if decision == "SKIP":
+                    if decision in ("SKIP", "ESPERAR", "FALLBACK"):
+                        motivo = {
+                            "SKIP":     "descartado por LLM",
+                            "ESPERAR":  "en espera por LLM",
+                            "FALLBACK": "sin LLM disponible — ignorando por seguridad",
+                        }[decision]
                         addlog(
-                            f"[Arbitraje] NICHO DESCARTADO por LLM: {m['pregunta'][:40]}... | {razon}",
+                            f"[Arbitraje] NICHO {motivo.upper()}: {m['pregunta'][:40]}... | {razon}",
                             "info"
                         )
                         continue
 
-                    if decision == "ESPERAR":
-                        addlog(
-                            f"[Arbitraje] NICHO EN ESPERA: {m['pregunta'][:40]}... | {razon}",
-                            "info"
-                        )
-                        continue
-
-                    # APOSTAR o FALLBACK — pasa al Trader
-                    if noticias:
-                        op["razonamiento_llm"] = razon
-                        op["noticias"]         = noticias
-                        if decision == "APOSTAR":
-                            op["confianza_llm"] = "ALTA"
-                            addlog(
-                                f"[Arbitraje] NICHO CONFIRMADO por LLM: {m['pregunta'][:40]}... | {razon}",
-                                "win"
-                            )
-                        else:
-                            addlog(
-                                f"[Arbitraje] NICHO: {m['pregunta'][:45]}... | "
-                                f"liquidez=${m['liquidez']:,.0f} | margen={op['ganancia_pct']}% (Groq no disponible)"
-                            )
-                    else:
-                        addlog(
-                            f"[Arbitraje] NICHO: {m['pregunta'][:45]}... | "
-                            f"liquidez=${m['liquidez']:,.0f} | margen={op['ganancia_pct']}%"
-                        )
+                    # Solo APOSTAR llega acá
+                    op["razonamiento_llm"] = razon
+                    op["noticias"]         = noticias
+                    op["confianza_llm"]    = "ALTA"
+                    addlog(
+                        f"[Arbitraje] NICHO CONFIRMADO: {m['pregunta'][:40]}... | {razon}",
+                        "win"
+                    )
                     registrar_oportunidad(op)
 
             total = len(spreads) + len(inconsistencias) + len(nichos)
