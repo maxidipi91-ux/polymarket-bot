@@ -13,9 +13,10 @@ from config_loader import CONFIG
 
 AGENTES_ACTIVOS = [
     # Señales (sin LLM, sin noticias)
-    "agentes.odds",        # Bookmakers (Pinnacle/Betfair) vs Polymarket en deportes
-    "agentes.binance",     # BTC/ETH cortos: fair value Binance vs Polymarket
-    "agentes.arbitraje",   # Spread garantizado (YES+NO < $0.98 = ganancia sin riesgo)
+    "agentes.odds",            # Bookmakers vs Polymarket en deportes (24h)
+    "agentes.binance",         # BTC/ETH fair value vs Polymarket (15s)
+    "agentes.arbitraje",       # Nichos stale e inconsistencias lógicas (60s)
+    "agentes.near_resolution", # Mercados 95%+ cerca de resolución (5min)
     # Ejecución
     "agentes.trader",
     "agentes.salida",

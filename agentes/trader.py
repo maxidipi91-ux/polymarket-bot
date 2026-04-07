@@ -119,12 +119,17 @@ def calcular_monto(mercado):
     saldo  = estado["saldo"]
     riesgo = estado["riesgo_por_op"] * mult
 
-    if precio < PRECIO_MIN_APOSTAR or precio > PRECIO_MAX_APOSTAR:
+    # Near-resolution: rango extendido hasta 99%, edge mínimo 1%
+    es_near_res = mercado.get("metodo_analisis") == "NearResolution"
+    precio_max  = 0.99 if es_near_res else PRECIO_MAX_APOSTAR
+    edge_min    = 0.01 if es_near_res else EDGE_MINIMO
+
+    if precio < PRECIO_MIN_APOSTAR or precio > precio_max:
         addlog(f"[Trader] Precio {round(precio*100,1)}% fuera de rango — skip", "info")
         return 0
 
     edge = prob - precio
-    if edge < EDGE_MINIMO:
+    if edge < edge_min:
         addlog(f"[Trader] Edge {round(edge*100,1)}% < mínimo — skip", "info")
         return 0
 
