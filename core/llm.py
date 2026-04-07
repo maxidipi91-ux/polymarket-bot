@@ -37,7 +37,7 @@ PROVEEDORES = [
     {
         "nombre":  "Cerebras",
         "url":     "https://api.cerebras.ai/v1/chat/completions",
-        "modelo":  "llama-3.3-70b",
+        "modelo":  "llama3.3-70b",
         "key_cfg": "cerebras_api_key",
     },
     {
