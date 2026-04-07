@@ -35,30 +35,23 @@ EDGE_MIN      = 0.08  # 8% de diferencia mínima
 LIQUIDEZ_MIN  = 5000  # Mínimo $5K en Polymarket para que valga
 MAX_DIAS      = 7     # Solo partidos en los próximos 7 días
 
-# Deportes a monitorear — solo outrights que existen en ambas plataformas
-# The Odds API outright keys → Polymarket tiene mercados equivalentes
-# Presupuesto: 13 deportes × 30 días = 390 créditos/mes (límite: 500)
+# Deportes a monitorear — solo los que tienen mercados activos en Polymarket
+# Verificado: NFL/MLB/NCAAF/NCAAB/UEFA Euro = 0 mercados activos en Polymarket ahora
+# Presupuesto: 8 deportes × 30 días = 240 créditos/mes (límite: 500)
 DEPORTES = [
-    # Basketball
-    "basketball_nba_championship_winner",       # "Will X win the 2026 NBA Finals?"
-    "basketball_ncaab_championship_winner",     # March Madness winner
-    # Hockey
-    "icehockey_nhl_championship_winner",        # "Will X win the 2026 NHL Stanley Cup?"
-    # Baseball
-    "baseball_mlb_world_series_winner",         # "Will X win the 2026 MLB World Series?"
-    # American Football
-    "americanfootball_nfl_super_bowl_winner",   # "Will X win Super Bowl LXI?"
-    "americanfootball_ncaaf_championship_winner",
-    # Golf — 4 majors
-    "golf_masters_tournament_winner",           # "Will X win the 2026 Masters?"
+    # Basketball — 75 mercados, $13.6M liquidez en Polymarket
+    "basketball_nba_championship_winner",
+    # Hockey — 27 mercados, $3.3M liquidez
+    "icehockey_nhl_championship_winner",
+    # Golf — 85 mercados, $11.2M liquidez (4 majors activos)
+    "golf_masters_tournament_winner",
     "golf_pga_championship_winner",
     "golf_us_open_winner",
     "golf_the_open_championship_winner",
-    # Soccer
+    # Soccer — FIFA World Cup 2026: 48 mercados, $84.6M liquidez 🔥
     "soccer_fifa_world_cup_winner",
-    "soccer_uefa_european_championship",
-    # Politics
-    "politics_us_presidential_election_winner", # "Will X win the 2028 US Presidential Election?"
+    # Política US — 380 mercados, $227M liquidez 🔥
+    "politics_us_presidential_election_winner",
 ]
 
 # Bookmakers preferidos: Pinnacle y Betfair son los más sharp del mundo
