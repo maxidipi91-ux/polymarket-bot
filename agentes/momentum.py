@@ -167,7 +167,8 @@ def buscar_en_predictit(pregunta, contratos_pi):
         comunes = len(palabras & palabras_pi)
         score   = comunes / max(len(palabras), 1)
 
-        if score > mejor_score and score >= 0.35:  # al menos 35% de palabras en común
+        # Exige 50% de palabras en común Y al menos 3 palabras clave coincidentes
+        if score > mejor_score and score >= 0.50 and comunes >= 3:
             mejor_score  = score
             mejor_precio = c["precio"]
             mejor_nombre = c["contrato"]
