@@ -124,18 +124,22 @@ def get_operaciones_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
-        SELECT id, mercado_id, outcome, precio_entrada, monto, ganancia, resultado, fecha_entrada
-        FROM operaciones ORDER BY id DESC LIMIT 50
+        SELECT o.id, o.mercado_id, o.outcome, o.precio_entrada, o.monto,
+               o.ganancia, o.resultado, o.fecha_entrada,
+               COALESCE(m.pregunta, o.mercado_id) as pregunta
+        FROM operaciones o
+        LEFT JOIN mercados m ON o.mercado_id = m.id
+        ORDER BY o.id DESC LIMIT 50
     """)
     rows = c.fetchall()
     conn.close()
     ops = []
     for row in rows:
-        db_id, mercado_id, outcome, precio, monto, ganancia, resultado, fecha = row
+        db_id, mercado_id, outcome, precio, monto, ganancia, resultado, fecha, pregunta = row
         ops.append({
             "id":                  mercado_id,
             "db_id":               db_id,
-            "pregunta":            mercado_id,
+            "pregunta":            pregunta,
             "outcome":             outcome or "",
             "precio":              round((precio or 0) * 100, 1),
             "monto":               round(monto or 0, 2),
