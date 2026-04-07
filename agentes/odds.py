@@ -30,7 +30,7 @@ ODDS_API_URL = "https://api.the-odds-api.com/v4"
 GAMMA_URL    = "https://gamma-api.polymarket.com"
 
 ODDS_API_KEY  = CONFIG["odds_api_key"]
-INTERVALO_SEG = 21600  # 6 horas — conserva créditos del plan gratis (500/mes)
+INTERVALO_SEG = 86400  # 24 horas — odds de outrights no cambian tanto, conserva créditos (500/mes ~83 días)
 EDGE_MIN      = 0.08  # 8% de diferencia mínima
 LIQUIDEZ_MIN  = 5000  # Mínimo $5K en Polymarket para que valga
 MAX_DIAS      = 7     # Solo partidos en los próximos 7 días
