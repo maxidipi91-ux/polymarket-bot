@@ -78,7 +78,7 @@ def parsear_mercado(m):
 def obtener_mercados():
     """Obtiene todos los mercados activos."""
     try:
-        params = {"active": "true", "closed": "false", "limit": 500}
+        params = {"active": "true", "closed": "false", "limit": 500, "order": "volume24hr", "ascending": "false"}
         r = requests.get(f"{GAMMA_URL}/markets", params=params, timeout=15)
         return r.json()
     except Exception as e:

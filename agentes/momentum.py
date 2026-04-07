@@ -270,7 +270,7 @@ def correr():
             for offset in [0, 500]:
                 r = requests.get(f"{GAMMA_URL}/markets", params={
                     "active": "true", "closed": "false",
-                    "limit": 500, "offset": offset
+                    "limit": 500, "offset": offset, "order": "volume24hr", "ascending": "false"
                 }, timeout=15)
                 batch = r.json()
                 mercados_raw.extend(batch)

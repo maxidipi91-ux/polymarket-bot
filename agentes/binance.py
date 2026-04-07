@@ -424,7 +424,7 @@ def correr():
             # 2. Mercados activos de Polymarket
             try:
                 r = requests.get(f"{GAMMA_URL}/markets", params={
-                    "active": "true", "closed": "false", "limit": 500
+                    "active": "true", "closed": "false", "limit": 500, "order": "volume24hr", "ascending": "false"
                 }, timeout=15)
                 mercados_raw = r.json()
             except Exception as e:
