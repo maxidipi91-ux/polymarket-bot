@@ -296,4 +296,9 @@ if __name__ == "__main__":
     print("=" * 50)
     print("Claudio v0.2 — http://localhost:5000")
     print("=" * 50)
+    # Auto-arranque en modo simulacion al iniciar el servidor
+    init_db()
+    estado["modo"] = "simulacion"
+    t = threading.Thread(target=orquestador.iniciar, daemon=True)
+    t.start()
     app.run(host="0.0.0.0", debug=False, port=5000, use_reloader=False)
