@@ -59,6 +59,7 @@ def cargar():
         "football_data_token":  get("FOOTBALL_DATA_TOKEN",  "football_data_token",  ""),
         "odds_api_key":         get("ODDS_API_KEY",         "odds_api_key",         ""),
         "groq_api_key":         get("GROQ_API_KEY",         "groq_api_key",         ""),
+        "kalshi_api_key":       get("KALSHI_API_KEY",       "kalshi_api_key",       ""),
         "ollama_url":           get("OLLAMA_URL",           "ollama_url",           "http://localhost:11434"),
         "ollama_model":         get("OLLAMA_MODEL",         "ollama_model",         "mistral"),
         "riesgo_por_op":        float(get("RIESGO_POR_OP", "riesgo_por_op",        10.0)),

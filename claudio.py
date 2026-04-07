@@ -17,6 +17,7 @@ AGENTES_ACTIVOS = [
     "agentes.binance",         # BTC/ETH fair value vs Polymarket (15s)
     "agentes.arbitraje",       # Nichos stale e inconsistencias lógicas (60s)
     "agentes.near_resolution", # Mercados 95%+ cerca de resolución (5min)
+    "agentes.momentum",        # Volume spike + Kalshi comparison (5min)
     # Ejecución
     "agentes.trader",
     "agentes.salida",
