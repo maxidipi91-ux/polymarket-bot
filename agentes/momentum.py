@@ -31,6 +31,14 @@ PI_EDGE        = 0.10   # Diferencia mínima con PredictIt (10%)
 LIQUIDEZ_MIN   = 1000   # Liquidez mínima en Polymarket
 PI_MAX_DIAS    = 90     # Solo-PredictIt: máximo 90 días (sin spike = más ruido)
 
+# Mercados políticos: PredictIt no es buen predictor de Polymarket para estos temas
+# (dinámicas distintas, news-driven, mucho ruido). Solo los tomamos con spike real.
+PI_SKIP_POLITICO = {
+    "trump", "biden", "congress", "senate", "election", "president", "presidential",
+    "republican", "democrat", "political", "vote", "governor", "parliament",
+    "minister", "chancellor", "tariff", "sanction", "executive", "legislation",
+}
+
 _vol_history   = {}     # mercado_id → [(timestamp, volumen), ...]
 _pi_cache      = {"data": None, "ts": 0}
 PI_CACHE_TTL   = 300    # Cachear PredictIt 5 min (misma frecuencia que el ciclo)
@@ -327,6 +335,10 @@ def correr():
                     mid = m.get("id", "")
                     if mid in encontrados: continue
                     if float(m.get("liquidity", 0) or 0) < LIQUIDEZ_MIN: continue
+                    # Filtrar mercados políticos — PredictIt no predice bien Polymarket aquí
+                    palabras_q = set(m.get("question", "").lower().split())
+                    if palabras_q & PI_SKIP_POLITICO:
+                        continue
                     # Filtrar mercados muy lejanos (elecciones 2026, etc.)
                     fecha_fin = m.get("endDate", "")
                     if fecha_fin:
