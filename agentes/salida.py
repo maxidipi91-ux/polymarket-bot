@@ -226,7 +226,9 @@ def monitorear_posiciones():
 
     for op in abiertas:
         try:
-            precio_actual = obtener_precio_real(op["pregunta"], op["outcome"])
+            # Usar op["id"] (ej: mom_1570752_Yes) para extraer el ID de Polymarket
+            # op["pregunta"] es el texto truncado que no sirve para _extraer_polymarket_id
+            precio_actual = obtener_precio_real(op.get("id", op["pregunta"]), op["outcome"])
 
             if precio_actual is None:
                 addlog(f"[Salida] No se pudo obtener precio real para {op['pregunta'][:30]}...", "error")
