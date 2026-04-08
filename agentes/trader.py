@@ -11,7 +11,7 @@ import threading
 from datetime import datetime
 from core.estado import (estado, addlog, insertar_operacion,
                          actualizar_saldo, actualizar_pnl, get_mercados,
-                         get_operaciones)
+                         get_operaciones, incrementar_ciclo)
 from core.database import guardar_operacion, get_mercados_apostados, guardar_memoria
 
 INTERVALO_SEGUNDOS  = 90
@@ -254,6 +254,7 @@ def correr():
 
     while estado["corriendo"]:
         try:
+            incrementar_ciclo()
             with _mult_lock:
                 mult = multiplicador_actual
             addlog(f"[Trader] Multiplicador: {round(mult,2)}x | Riesgo efectivo: ${round(estado['riesgo_por_op'] * mult,2)}", "info")
