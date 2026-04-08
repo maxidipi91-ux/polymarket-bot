@@ -62,9 +62,14 @@ def cargar():
         "cerebras_api_key":     get("CEREBRAS_API_KEY",     "cerebras_api_key",     ""),
         "mistral_api_key":      get("MISTRAL_API_KEY",      "mistral_api_key",      ""),
         "newsdata_api_key":     get("NEWSDATA_API_KEY",     "newsdata_api_key",     ""),
-        "riesgo_por_op":        float(get("RIESGO_POR_OP", "riesgo_por_op",        10.0)),
-        "saldo_inicial":        float(get("SALDO_INICIAL",  "saldo_inicial",        1000.0)),
-        "modo":                 get("MODO",                 "modo",                 "simulacion"),
+        "riesgo_por_op":            float(get("RIESGO_POR_OP", "riesgo_por_op",        10.0)),
+        "saldo_inicial":            float(get("SALDO_INICIAL",  "saldo_inicial",        1000.0)),
+        "modo":                     get("MODO",                 "modo",                 "simulacion"),
+        # Polymarket CLOB — solo necesario para modo real
+        "polymarket_pk":            get("POLYMARKET_PK",            "polymarket_pk",            ""),
+        "polymarket_api_key":       get("POLYMARKET_API_KEY",       "polymarket_api_key",       ""),
+        "polymarket_api_secret":    get("POLYMARKET_API_SECRET",    "polymarket_api_secret",    ""),
+        "polymarket_api_passphrase":get("POLYMARKET_API_PASSPHRASE","polymarket_api_passphrase",""),
     }
 
 

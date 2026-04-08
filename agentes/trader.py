@@ -197,6 +197,21 @@ def ejecutar_apuesta(mercado):
     op_id = guardar_operacion(mercado["id"], mercado["outcome"], precio, monto, modo)
     op["db_id"] = op_id
 
+    # Ejecución real en Polymarket CLOB
+    if modo == "real":
+        try:
+            from agentes.clob import ejecutar_orden, obtener_token_id
+            from agentes.salida import _extraer_polymarket_id
+            pm_id = _extraer_polymarket_id(mercado["id"])
+            if pm_id:
+                resultado = ejecutar_orden(pm_id, mercado["outcome"], precio, monto)
+                if not resultado:
+                    addlog("[Trader] ⚠️ Orden CLOB falló — posición registrada pero NO ejecutada en cadena", "error")
+            else:
+                addlog(f"[Trader] ⚠️ No se pudo extraer polymarket_id de {mercado['id']}", "error")
+        except Exception as e:
+            addlog(f"[Trader] Error en ejecución real: {e}", "error")
+
     with _mult_lock:
         mult = multiplicador_actual
 
