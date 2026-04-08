@@ -194,7 +194,7 @@ def ejecutar_apuesta(mercado):
     insertar_operacion(op)
 
     modo  = estado["modo"]
-    op_id = guardar_operacion(mercado["id"], mercado["outcome"], precio, monto, modo)
+    op_id = guardar_operacion(mercado["id"], mercado["outcome"], precio, monto, modo, kelly_usado)
     op["db_id"] = op_id
 
     # Ejecución real en Polymarket CLOB

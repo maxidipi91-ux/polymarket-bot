@@ -43,8 +43,14 @@ def init_db():
         monto REAL,
         ganancia REAL,
         resultado TEXT,
-        modo TEXT DEFAULT "simulacion"
+        modo TEXT DEFAULT "simulacion",
+        kelly_usado REAL
     )''')
+    # Migración: agregar kelly_usado si no existe en tablas ya creadas
+    try:
+        c.execute('ALTER TABLE operaciones ADD COLUMN kelly_usado REAL')
+    except:
+        pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS noticias (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,14 +94,14 @@ def guardar_analisis(mercado_id, precio_mercado, probabilidad_claudio,
     conn.commit()
     conn.close()
 
-def guardar_operacion(mercado_id, outcome, precio_entrada, monto, modo="simulacion"):
+def guardar_operacion(mercado_id, outcome, precio_entrada, monto, modo="simulacion", kelly_usado=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''INSERT INTO operaciones
-                 (mercado_id, fecha_entrada, outcome, precio_entrada, monto, resultado, modo)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                 (mercado_id, fecha_entrada, outcome, precio_entrada, monto, resultado, modo, kelly_usado)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
               (mercado_id, datetime.now().isoformat(), outcome,
-               precio_entrada, monto, "ABIERTA", modo))
+               precio_entrada, monto, "ABIERTA", modo, kelly_usado))
     op_id = c.lastrowid
     conn.commit()
     conn.close()
@@ -126,7 +132,8 @@ def get_operaciones_db():
     c.execute("""
         SELECT o.id, o.mercado_id, o.outcome, o.precio_entrada, o.monto,
                o.ganancia, o.resultado, o.fecha_entrada,
-               COALESCE(m.pregunta, o.mercado_id) as pregunta
+               COALESCE(m.pregunta, o.mercado_id) as pregunta,
+               o.kelly_usado
         FROM operaciones o
         LEFT JOIN mercados m ON o.mercado_id = m.id
         ORDER BY o.id DESC LIMIT 50
@@ -135,7 +142,7 @@ def get_operaciones_db():
     conn.close()
     ops = []
     for row in rows:
-        db_id, mercado_id, outcome, precio, monto, ganancia, resultado, fecha, pregunta = row
+        db_id, mercado_id, outcome, precio, monto, ganancia, resultado, fecha, pregunta, kelly = row
         ops.append({
             "id":                  mercado_id,
             "db_id":               db_id,
@@ -148,7 +155,7 @@ def get_operaciones_db():
             "fecha":               (fecha or "")[:19],
             "fecha_completa":      fecha or "",
             "confianza":           "—",
-            "kelly_usado":         None,
+            "kelly_usado":         kelly,
             "edge":                0,
             "probabilidad_claudio": precio or 0,
             "ganancia":            round(ganancia or 0, 2),
