@@ -8,15 +8,16 @@ usan _lock para evitar race conditions entre hilos.
 
 from datetime import datetime
 import threading
+from config_loader import CONFIG
 
 _lock = threading.Lock()
 
 estado = {
     "corriendo":        False,
-    "modo":             "simulacion",   # "simulacion" | "real"
-    "saldo":            1000.0,
+    "modo":             CONFIG.get("modo", "simulacion"),
+    "saldo":            CONFIG.get("saldo_inicial", 1000.0),
     "pnl":              0.0,
-    "riesgo_por_op":    10.0,
+    "riesgo_por_op":    CONFIG.get("riesgo_por_op", 10.0),
     "operaciones":      [],
     "mercados":         [],
     "log":              [],
