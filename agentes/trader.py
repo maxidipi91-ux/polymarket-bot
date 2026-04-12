@@ -19,13 +19,14 @@ apostados           = set()
 _mult_lock          = threading.Lock()
 
 # ─── Parámetros de riesgo ────────────────────────────────────────────────────
-EDGE_MINIMO         = 0.08
+EDGE_MINIMO         = 0.05
 KELLY_FACTOR        = 0.25
 KELLY_MAX           = 0.20
 MAX_PCT_SALDO       = 0.10
 PRECIO_MIN_APOSTAR  = 0.15
 PRECIO_MAX_APOSTAR  = 0.85
 MAX_OPS_POR_TEMA    = 2
+MAX_OPS_TOTAL       = 8
 
 # ─── Anti-martingale ─────────────────────────────────────────────────────────
 MULTIPLICADOR_MAX   = 2.0
@@ -127,8 +128,8 @@ def calcular_monto(mercado):
     es_near_res = mercado.get("metodo_analisis") == "NearResolution"
     es_odds     = str(mercado.get("metodo_analisis", "")).startswith("Odds/")
     precio_min  = 0.05 if es_odds else PRECIO_MIN_APOSTAR
-    precio_max  = 0.99 if es_near_res else PRECIO_MAX_APOSTAR
-    edge_min    = 0.01 if es_near_res else EDGE_MINIMO
+    precio_max  = 0.995 if es_near_res else PRECIO_MAX_APOSTAR  # filtrar mercados ya al 100%
+    edge_min    = 0.002 if es_near_res else EDGE_MINIMO         # 0.2% mínimo para NearRes
 
     if precio < precio_min or precio > precio_max:
         addlog(f"[Trader] Precio {round(precio*100,1)}% fuera de rango — skip", "info")
@@ -141,6 +142,12 @@ def calcular_monto(mercado):
 
     if mercado.get("confianza") == "BAJA":
         addlog(f"[Trader] Confianza BAJA — skip", "info")
+        return 0
+
+    # Tope global de posiciones abiertas
+    ops_abiertas = sum(1 for op in get_operaciones() if op.get("estado") == "ABIERTA")
+    if ops_abiertas >= MAX_OPS_TOTAL:
+        addlog(f"[Trader] Tope de {MAX_OPS_TOTAL} posiciones abiertas — skip", "info")
         return 0
 
     ops_mismo_tema = contar_ops_por_tema(mercado["pregunta"])
@@ -200,17 +207,39 @@ def ejecutar_apuesta(mercado):
     # Ejecución real en Polymarket CLOB
     if modo == "real":
         try:
-            from agentes.clob import ejecutar_orden, obtener_token_id
+            from agentes.clob import ejecutar_orden
             from agentes.salida import _extraer_polymarket_id
-            pm_id = _extraer_polymarket_id(mercado["id"])
-            if pm_id:
-                resultado = ejecutar_orden(pm_id, mercado["outcome"], precio, monto)
+            from core.database import cerrar_operacion as _cerrar_op
+
+            # Intentar extraer el ID real: primero por prefijo sintético (mom_, arb_),
+            # luego por campo directo (near_resolution ya lo guarda en "polymarket_id")
+            pm_id          = _extraer_polymarket_id(mercado["id"]) or mercado.get("polymarket_id", "")
+            token_directo  = mercado.get("clob_token_id") or None
+
+            if pm_id or token_directo:
+                resultado = ejecutar_orden(pm_id, mercado["outcome"], precio, monto,
+                                           token_id_directo=token_directo)
                 if not resultado:
-                    addlog("[Trader] ⚠️ Orden CLOB falló — posición registrada pero NO ejecutada en cadena", "error")
+                    # Orden rechazada — revertir todo
+                    actualizar_saldo(monto)
+                    if op_id:
+                        _cerrar_op(op_id, precio, 0, "FALLIDA")
+                    op["estado"] = "FALLIDA"
+                    addlog("[Trader] ⚠️ Orden CLOB rechazada — saldo revertido, op FALLIDA", "error")
             else:
-                addlog(f"[Trader] ⚠️ No se pudo extraer polymarket_id de {mercado['id']}", "error")
+                # Sin ID ejecutable — no gastar saldo real
+                actualizar_saldo(monto)
+                if op_id:
+                    _cerrar_op(op_id, precio, 0, "FALLIDA")
+                op["estado"] = "FALLIDA"
+                addlog(f"[Trader] ⚠️ Sin polymarket_id para {mercado['id']} — revertido, op FALLIDA", "error")
         except Exception as e:
             addlog(f"[Trader] Error en ejecución real: {e}", "error")
+            actualizar_saldo(monto)
+            if op_id:
+                from core.database import cerrar_operacion as _cerrar_op2
+                _cerrar_op2(op_id, precio, 0, "FALLIDA")
+            op["estado"] = "FALLIDA"
 
     with _mult_lock:
         mult = multiplicador_actual
@@ -263,9 +292,15 @@ def correr():
             candidatos = [
                 m for m in get_mercados()
                 if m.get("analizado")
-                and m.get("decision_investigador") == "APOSTAR"
                 and m.get("confianza") in ["ALTA", "MEDIA"]
                 and m["id"] not in apostados
+                and (
+                    m.get("decision_investigador") == "APOSTAR"
+                    or (  # Momentum ALTA bypasea el Investigador
+                        m.get("confianza") == "ALTA"
+                        and str(m.get("metodo_analisis", "")).startswith("Momentum")
+                    )
+                )
             ]
 
             if candidatos:

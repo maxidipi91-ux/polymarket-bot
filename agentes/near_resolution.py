@@ -76,18 +76,24 @@ def analizar(m_raw):
 
     mejor_prob    = 0.0
     mejor_outcome = None
+    mejor_idx     = 0
 
-    for outcome, precio_str in zip(outcomes, precios):
+    for idx, (outcome, precio_str) in enumerate(zip(outcomes, precios)):
         try:
             prob = float(precio_str)
             if prob >= PROB_MIN and prob > mejor_prob:
                 mejor_prob    = prob
                 mejor_outcome = outcome
+                mejor_idx     = idx
         except:
             continue
 
     if mejor_prob < PROB_MIN:
         return None
+
+    # Extraer token ID real del CLOB para este outcome
+    clob_token_ids = parsear_lista(m_raw.get("clobTokenIds"))
+    clob_token_id  = clob_token_ids[mejor_idx] if mejor_idx < len(clob_token_ids) else ""
 
     precio_op      = mejor_prob
     retorno_pct    = round((1 - precio_op) / precio_op * 100, 2)
@@ -123,6 +129,9 @@ def analizar(m_raw):
         "probabilidad_claudio":  1.0,   # Mercado cerca de resolver YES — fair value = 100%
         "edge_calculado":        round(1.0 - precio_op, 4),
         "metodo_analisis":       "NearResolution",
+        "condition_id":          m_raw.get("conditionId", ""),
+        "polymarket_id":         str(m_raw.get("id", "")),
+        "clob_token_id":         clob_token_id,
         "razonamiento": (
             f"{mejor_outcome} {round(mejor_prob*100,1)}% | "
             f"{round(horas,1)}h restantes | "
