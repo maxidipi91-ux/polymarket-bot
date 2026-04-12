@@ -1,17 +1,21 @@
 """
-agentes/salida.py — Agente de Salida de Posiciones v2
-Paper trading con datos REALES de Polymarket.
+agentes/salida.py — Agente de Salida de Posiciones v3
 
-No usa random() — monitorea el precio real cada 60 segundos.
-Sale cuando el precio real se mueve a favor (take profit) o en contra (stop loss).
+Dos modos de salida según el tipo de mercado:
 
-Esto convierte la simulación en paper trading real:
-  - Si Liverpool estaba al 16% y sube al 18.4% → GANADA (take profit 15%)
-  - Si baja al 14.4% → PERDIDA (stop loss 10%)
-  - El winrate refleja si Claudio realmente detecta edge, no suerte
+1. Resolución instantánea (deportes, esports, eventos 1-day):
+   - Esperar precio >= 95% → GANADA (redimir tokens automáticamente)
+   - Esperar precio <= 5%  → PERDIDA (corte duro, no hay reversión)
+   - Safety net: 48h para cierre forzado
+
+2. Mercados continuos (BTC/ETH precios, elecciones largas, etc.):
+   - Take profit: +15% desde entrada
+   - Stop loss:   -10% desde entrada
+   - Time exit:   48h con ganancia mínima 3%
 """
 
 import time
+import threading
 import requests
 import json
 from datetime import datetime, timedelta
@@ -21,26 +25,25 @@ from core.database import cerrar_operacion
 GAMMA_URL   = "https://gamma-api.polymarket.com"
 INTERVALO   = 60   # Monitorea cada 60 segundos
 
-# ─── Parámetros de salida ─────────────────────────────────────────────────────
-TAKE_PROFIT          = 0.15   # Salir si el precio subió 15% desde la entrada
-STOP_LOSS            = 0.10   # Salir si el precio bajó 10% desde la entrada
-MAX_HORAS            = 48     # Salir después de 48h aunque no haya movimiento
-MIN_PROFIT_TIME_EXIT = 0.03   # Time exit solo si hay al menos 3% de ganancia
+# ─── Parámetros — resolución instantánea ─────────────────────────────────────
+UMBRAL_GANADA  = 0.95   # Precio >= 95% → resolucion_ganada
+UMBRAL_PERDIDA = 0.05   # Precio <= 5%  → resolucion_perdida
+
+# ─── Parámetros — mercados continuos ─────────────────────────────────────────
+TAKE_PROFIT          = 0.15   # +15% desde entrada
+STOP_LOSS            = 0.10   # -10% desde entrada
+MAX_HORAS            = 48     # Forzar salida tras 48h
+MIN_PROFIT_TIME_EXIT = 0.03   # Time exit solo si ganancia >= 3%
 
 
-# ─── Caché de mercados para evitar N llamadas a la API ───────────────────────
+# ─── Caché de mercados ────────────────────────────────────────────────────────
 
 _mercados_cache = []
 _cache_ts = None
-_CACHE_TTL_SEG = 90   # Refrescar cada 90s (un poco más que el ciclo del Trader)
+_CACHE_TTL_SEG = 90
 
 
 def _obtener_mercados_cached():
-    """
-    Descarga los mercados UNA sola vez por ciclo de monitoreo y los reutiliza
-    para todas las posiciones abiertas. Evita N llamadas a la API cuando hay N ops.
-    Descarga hasta 1000 mercados (2 páginas de 500).
-    """
     global _mercados_cache, _cache_ts
     ahora = datetime.now()
     if _cache_ts and (ahora - _cache_ts).total_seconds() < _CACHE_TTL_SEG:
@@ -48,7 +51,8 @@ def _obtener_mercados_cached():
     try:
         resultado = []
         for offset in [0, 500]:
-            params = {"active": "true", "closed": "false", "limit": 500, "offset": offset, "order": "volume24hr", "ascending": "false"}
+            params = {"active": "true", "closed": "false", "limit": 500, "offset": offset,
+                      "order": "volume24hr", "ascending": "false"}
             r = requests.get(f"{GAMMA_URL}/markets", params=params, timeout=10)
             batch = r.json()
             resultado.extend(batch)
@@ -62,34 +66,39 @@ def _obtener_mercados_cached():
 
 
 def _extraer_polymarket_id(pregunta):
-    """
-    Si la pregunta es un ID sintético (mom_<id>_Yes, arb_<id>_Yes, nr_<...>),
-    extrae el ID real de Polymarket cuando está embebido en el prefijo.
-    Retorna el ID o None si no es un prefijo sintético.
-    """
+    """Extrae el ID real de Polymarket de un ID sintético (mom_<id>_Yes, arb_<id>_Yes)."""
     for prefijo in ("mom_", "arb_"):
         if pregunta.startswith(prefijo):
-            # Formato: mom_<polymarket_id>_Yes  (el ID puede tener guiones)
-            resto = pregunta[len(prefijo):]
-            # Quitar el sufijo _<outcome>
+            resto  = pregunta[len(prefijo):]
             partes = resto.rsplit("_", 1)
             if len(partes) == 2:
-                return partes[0]  # el ID de Polymarket
+                return partes[0]
     return None
+
+
+def _es_resolucion_instantanea(pregunta: str) -> bool:
+    """
+    Detecta si el mercado es de resolución instantánea (deportes, esports, eventos 1-day).
+    En estos mercados NO aplicamos stop-loss durante el partido — esperamos 95%/5%.
+    """
+    p = pregunta.lower()
+    if " vs " in p or " vs. " in p:           return True
+    if "win on " in p or "win the " in p:     return True
+    if "end in " in p or "end in a " in p:    return True
+    if "up or down" in p or "higher or lower" in p: return True
+    if any(x in p for x in ["lpl", "lck", " bo3", " bo5", "esports", "dota", "valorant", "league of legends"]):
+        return True
+    return False
 
 
 def obtener_precio_real(pregunta, outcome):
     """
     Obtiene el precio real de Polymarket usando la cache compartida del ciclo.
-    Soporta:
-      - Preguntas reales (matching por texto)
-      - IDs sintéticos de Momentum (mom_<id>_Yes) y Arbitraje (arb_<id>_Yes)
-        → extrae el ID de Polymarket y busca por ID exacto
+    Soporta IDs sintéticos (mom_, arb_) y matching por texto.
     """
     try:
         mercados = _obtener_mercados_cached()
 
-        # Intentar primero por ID directo (para mom_ y arb_)
         pm_id = _extraer_polymarket_id(pregunta)
         if pm_id:
             for m in mercados:
@@ -102,9 +111,7 @@ def obtener_precio_real(pregunta, outcome):
                         if o.lower() == outcome.lower():
                             return float(p)
 
-        # Fallback: matching por texto (pregunta real o nr_)
         buscar = pregunta[:25].lower()
-        # Para nr_, la pregunta guardada en DB es la pregunta real
         for m in mercados:
             if buscar in m.get("question", "").lower():
                 precios  = m.get("outcomePrices", "[]")
@@ -133,8 +140,15 @@ def calcular_horas_abierta(op):
 
 def evaluar_salida(op, precio_actual):
     """
-    Evalua si hay que salir basandose en el precio REAL de Polymarket.
+    Evalúa si hay que salir.
     Retorna (salir, motivo, ganancia_pct)
+
+    Para mercados de resolución instantánea (deportes):
+      - Sale solo a >=95% o <=5% (no durante el partido)
+      - Safety net a 48h
+
+    Para mercados continuos:
+      - Take profit +15% / Stop loss -10% / Time exit 48h
     """
     precio_entrada = op["precio"] / 100
     if not precio_actual or precio_entrada <= 0:
@@ -143,17 +157,31 @@ def evaluar_salida(op, precio_actual):
     cambio = (precio_actual - precio_entrada) / precio_entrada
     horas  = calcular_horas_abierta(op)
 
-    if cambio >= TAKE_PROFIT:
-        return True, f"take_profit +{round(cambio*100,1)}%", cambio
+    pregunta = op.get("pregunta", "")
+    es_instantaneo = _es_resolucion_instantanea(pregunta)
 
-    if cambio <= -STOP_LOSS:
-        return True, f"stop_loss {round(cambio*100,1)}%", cambio
-
-    if horas >= MAX_HORAS and cambio >= MIN_PROFIT_TIME_EXIT:
-        return True, f"time_exit +{round(cambio*100,1)}%", cambio
-
-    if horas >= MAX_HORAS and cambio < -0.02:
-        return True, f"time_exit_loss {round(cambio*100,1)}%", cambio
+    if es_instantaneo:
+        # Resolución instantánea — esperar resolución real
+        if precio_actual >= UMBRAL_GANADA:
+            return True, "resolucion_ganada", cambio
+        if precio_actual <= UMBRAL_PERDIDA:
+            return True, "resolucion_perdida", cambio
+        # Safety net: si lleva 48h y no resolvió, forzar con lo que haya
+        if horas >= MAX_HORAS:
+            if cambio >= 0:
+                return True, f"time_exit +{round(cambio*100,1)}%", cambio
+            else:
+                return True, f"time_exit_loss {round(cambio*100,1)}%", cambio
+    else:
+        # Mercados continuos — take/stop normal
+        if cambio >= TAKE_PROFIT:
+            return True, f"take_profit +{round(cambio*100,1)}%", cambio
+        if cambio <= -STOP_LOSS:
+            return True, f"stop_loss {round(cambio*100,1)}%", cambio
+        if horas >= MAX_HORAS and cambio >= MIN_PROFIT_TIME_EXIT:
+            return True, f"time_exit +{round(cambio*100,1)}%", cambio
+        if horas >= MAX_HORAS and cambio < -0.02:
+            return True, f"time_exit_loss {round(cambio*100,1)}%", cambio
 
     return False, "", cambio
 
@@ -164,8 +192,7 @@ def cerrar_posicion(op, precio_actual, motivo, ganancia_pct):
     ganancia      = round(monto * ganancia_pct, 2)
     precio_salida = round(precio_actual * 100, 1)
 
-    # Actualizar saldo y PnL de forma atomica
-    actualizar_saldo(monto + ganancia)   # devolver monto + ganancia (o - perdida)
+    actualizar_saldo(monto + ganancia)
     actualizar_pnl(ganancia)
 
     gano = ganancia > 0
@@ -174,12 +201,30 @@ def cerrar_posicion(op, precio_actual, motivo, ganancia_pct):
     op["precio_salida"] = precio_salida
     op["motivo_salida"] = motivo
 
-    # Guardar en DB
     db_id = op.get("db_id")
     if db_id:
         cerrar_operacion(db_id, precio_actual, ganancia, op["estado"])
 
-    # Actualizar anti-martingale del Trader
+    # Cancelar órdenes CLOB abiertas para este mercado
+    if estado.get("modo") == "real":
+        try:
+            from agentes.clob import cancelar_ordenes_abiertas
+            cancelar_ordenes_abiertas()
+        except Exception as e:
+            addlog(f"[Salida] Error cancelando ordenes CLOB: {e}", "error")
+
+    # Auto-redimir tokens ganadores en on-chain
+    if motivo == "resolucion_ganada" and estado.get("modo") == "real":
+        def _redimir():
+            try:
+                from agentes.clob import buscar_y_redimir
+                pm_id = _extraer_polymarket_id(op.get("id", "")) or op.get("id", "")
+                buscar_y_redimir(pm_id, op.get("outcome", "Yes"))
+            except Exception as e:
+                addlog(f"[Salida] Error auto-redimiendo: {e}", "error")
+        threading.Thread(target=_redimir, daemon=True).start()
+
+    # Anti-martingale
     try:
         import agentes.trader as trader_mod
         trader_mod.ajustar_multiplicador(gano)
@@ -194,7 +239,6 @@ def cerrar_posicion(op, precio_actual, motivo, ganancia_pct):
         "win" if gano else "loss"
     )
 
-    # Notificar por Telegram
     try:
         from agentes.telegram_bot import enviar_mensaje
         enviar_mensaje(
@@ -212,22 +256,16 @@ def cerrar_posicion(op, precio_actual, motivo, ganancia_pct):
 def monitorear_posiciones():
     """
     Revisa todas las posiciones abiertas con precios reales de Polymarket.
-    Usa un snapshot thread-safe de operaciones y cache de mercados.
     """
     abiertas = [op for op in get_operaciones() if op.get("estado") == "ABIERTA"]
-
     if not abiertas:
         return
 
     addlog(f"[Salida] Monitoreando {len(abiertas)} posiciones con precios reales...")
-
-    # Refrescar cache una sola vez para todo el ciclo
     _obtener_mercados_cached()
 
     for op in abiertas:
         try:
-            # Usar op["id"] (ej: mom_1570752_Yes) para extraer el ID de Polymarket
-            # op["pregunta"] es el texto truncado que no sirve para _extraer_polymarket_id
             precio_actual = obtener_precio_real(op.get("id", op["pregunta"]), op["outcome"])
 
             if precio_actual is None:
@@ -237,17 +275,18 @@ def monitorear_posiciones():
             precio_entrada = op["precio"] / 100
             cambio_pct     = round((precio_actual - precio_entrada) / precio_entrada * 100, 1)
             horas          = round(calcular_horas_abierta(op), 1)
+            es_inst        = _es_resolucion_instantanea(op.get("pregunta", ""))
+            tipo_str       = "⚡" if es_inst else "📈"
 
             addlog(
-                f"[Salida] {op['pregunta'][:35]}... | "
+                f"[Salida] {tipo_str} {op['pregunta'][:35]}... | "
                 f"entrada {op['precio']}% -> actual {round(precio_actual*100,1)}% | "
                 f"cambio {'+' if cambio_pct >= 0 else ''}{cambio_pct}% | "
-                f"{horas}h abierta",
+                f"{horas}h",
                 "win" if cambio_pct > 0 else "loss" if cambio_pct < -3 else ""
             )
 
             salir, motivo, ganancia_pct = evaluar_salida(op, precio_actual)
-
             if salir:
                 cerrar_posicion(op, precio_actual, motivo, ganancia_pct)
 
@@ -256,8 +295,7 @@ def monitorear_posiciones():
 
 
 def correr():
-    addlog("[Salida] v2 iniciado — paper trading con precios REALES de Polymarket", "info")
-    addlog("[Salida] Take profit 15% | Stop loss 10% | Max 48h | Sin random()", "info")
+    addlog("[Salida] v3 iniciado — resolución instantánea (95%/5%) + continuos (TP15%/SL10%)", "info")
     time.sleep(20)
 
     while estado["corriendo"]:
